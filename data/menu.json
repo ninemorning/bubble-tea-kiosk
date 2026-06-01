@@ -1,0 +1,24 @@
+{
+    "categories": ["밀크티", "과일차", "슬러시"],
+    "items": [
+        {"id": 1, "category": "밀크티", "name": "타로 밀크티",   "price": 5500},
+        {"id": 2, "category": "밀크티", "name": "흑당 밀크티",   "price": 5900},
+        {"id": 3, "category": "밀크티", "name": "말차 밀크티",   "price": 5700},
+        {"id": 4, "category": "밀크티", "name": "우롱 밀크티",   "price": 5300},
+        {"id": 5, "category": "과일차", "name": "딸기 과일차",   "price": 6200},
+        {"id": 6, "category": "과일차", "name": "망고 과일차",   "price": 6500},
+        {"id": 7, "category": "과일차", "name": "복숭아 과일차", "price": 6000},
+        {"id": 8, "category": "슬러시", "name": "딸기 슬러시",   "price": 5800},
+        {"id": 9, "category": "슬러시", "name": "청포도 슬러시", "price": 5800}
+    ],
+    "options": {
+        "sweetness": [0, 25, 50, 75, 100],
+        "ice":       ["정량", "적게", "없음"],
+        "toppings": [
+            {"name": "타피오카 펄", "price": 500},
+            {"name": "코코넛 젤리", "price": 500},
+            {"name": "푸딩",        "price": 700},
+            {"name": "알로에",      "price": 500}
+        ]
+    }
+}
