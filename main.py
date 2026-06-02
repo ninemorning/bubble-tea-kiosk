@@ -7,11 +7,12 @@ from payment_frame import PaymentFrame
 
 def main():
     root = tk.Tk()
-    root.title("🧋 버블티 키오스크")
-    root.geometry("1200x720")
+    root.title("버블티 키오스크")
+    root.geometry("1700x720")
+    root.minsize(1500, 720)
     root.configure(bg="#FFF5F9")
-    root.resizable(False, False)
-
+    root.resizable(True, True)
+    
     # 모듈 초기화 (의존 순서대로)
     payment_frame = PaymentFrame(root)
     order_frame   = OrderFrame(root,  on_confirm_order=payment_frame.receive_order)
