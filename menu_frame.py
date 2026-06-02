@@ -40,9 +40,10 @@ def load_menu():
         return json.load(f)
 
 
-def _load_photo(item_id: int, size=(120, 100)):
+def _load_photo(item_id: int, max_width=160, max_height=160):
     """
     data/images/<id>.png (또는 .jpg/.jpeg/.webp) 를 로드해 PhotoImage 반환.
+    원본 비율을 유지하면서 max_width × max_height 안에 맞게 축소.
     파일이 없거나 PIL이 없으면 None 반환.
     """
     if not PIL_AVAILABLE:
@@ -51,7 +52,9 @@ def _load_photo(item_id: int, size=(120, 100)):
         path = os.path.join(IMAGES_DIR, f"{item_id}.{ext}")
         if os.path.exists(path):
             try:
-                img = Image.open(path).convert("RGBA").resize(size, Image.LANCZOS)
+                img = Image.open(path).convert("RGBA")
+                # 원본 비율 유지: max_width/max_height 박스 안에 fit
+                img.thumbnail((max_width, max_height), Image.LANCZOS)
                 return ImageTk.PhotoImage(img)
             except Exception:
                 return None
@@ -77,7 +80,7 @@ class CustomizeDialog(tk.Toplevel):
         pad = {"padx": 16, "pady": 6}
 
         # ── 상품 이미지 (팝업 상단) ─────────────────────────
-        photo = _load_photo(item["id"], size=(160, 120))
+        photo = _load_photo(item["id"], max_width=200, max_height=180)
         if photo:
             self._photo_ref = photo          # 가비지 컬렉션 방지
             tk.Label(self, image=photo, bg=PASTEL["bg"]).pack(pady=(12, 0))
@@ -289,7 +292,7 @@ class MenuFrame(tk.Frame):
             card.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
 
             # ── 이미지 영역 ───────────────────────────────────
-            photo = _load_photo(item["id"], size=(120, 100))
+            photo = _load_photo(item["id"], max_width=160, max_height=160)
             if photo:
                 self._photo_refs.append(photo)   # GC 방지 필수
                 tk.Label(card, image=photo,
