@@ -1,9 +1,17 @@
 import json
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox
 
+try:
+    from PIL import Image, ImageTk
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
 
-MENU_FILE = "data/menu.json"
+
+MENU_FILE   = "data/menu.json"
+IMAGES_DIR  = "data/images"
 
 PASTEL = {
     "bg":       "#FFF5F9",
@@ -19,10 +27,35 @@ PASTEL = {
     "add_txt":  "#FFFFFF",
 }
 
+# 카테고리별 이모지 (이미지 파일이 없을 때 폴백)
+CATEGORY_EMOJI = {
+    "밀크티": "🧋",
+    "과일차": "🍓",
+    "슬러시": "🧊",
+}
+
 
 def load_menu():
     with open(MENU_FILE, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _load_photo(item_id: int, size=(120, 100)):
+    """
+    data/images/<id>.png (또는 .jpg/.jpeg/.webp) 를 로드해 PhotoImage 반환.
+    파일이 없거나 PIL이 없으면 None 반환.
+    """
+    if not PIL_AVAILABLE:
+        return None
+    for ext in ("png", "jpg", "jpeg", "webp"):
+        path = os.path.join(IMAGES_DIR, f"{item_id}.{ext}")
+        if os.path.exists(path):
+            try:
+                img = Image.open(path).convert("RGBA").resize(size, Image.LANCZOS)
+                return ImageTk.PhotoImage(img)
+            except Exception:
+                return None
+    return None
 
 
 class CustomizeDialog(tk.Toplevel):
@@ -38,10 +71,20 @@ class CustomizeDialog(tk.Toplevel):
         self.grab_set()
         self.result = None
 
-        options   = menu_data["options"]
-        toppings  = options["toppings"]
+        options  = menu_data["options"]
+        toppings = options["toppings"]
 
         pad = {"padx": 16, "pady": 6}
+
+        # ── 상품 이미지 (팝업 상단) ─────────────────────────
+        photo = _load_photo(item["id"], size=(160, 120))
+        if photo:
+            self._photo_ref = photo          # 가비지 컬렉션 방지
+            tk.Label(self, image=photo, bg=PASTEL["bg"]).pack(pady=(12, 0))
+        else:
+            emoji = CATEGORY_EMOJI.get(item.get("category", ""), "🧋")
+            tk.Label(self, text=emoji, font=("맑은 고딕", 36),
+                     bg=PASTEL["bg"]).pack(pady=(12, 0))
 
         tk.Label(self, text=item["name"], font=("맑은 고딕", 14, "bold"),
                  bg=PASTEL["bg"], fg=PASTEL["accent"]).pack(**pad, anchor="w")
@@ -104,7 +147,7 @@ class CustomizeDialog(tk.Toplevel):
 
         ttk.Separator(self, orient="horizontal").pack(fill="x", padx=16, pady=4)
 
-        # 합계 표시
+        # 합계
         self.total_label = tk.Label(self, text="", font=("맑은 고딕", 12, "bold"),
                                     bg=PASTEL["bg"], fg=PASTEL["accent"])
         self.total_label.pack(**pad, anchor="e")
@@ -133,19 +176,18 @@ class CustomizeDialog(tk.Toplevel):
 
     def _update_total(self, item):
         topping_total = sum(t["price"] for t, v in self.topping_vars if v.get())
-        total = item["price"] + topping_total
-        self.total_label.config(text=f"합계: {total:,}원")
+        self.total_label.config(text=f"합계: {item['price'] + topping_total:,}원")
 
     def _add_to_cart(self, item):
         selected_toppings = [t for t, v in self.topping_vars if v.get()]
         topping_price     = sum(t["price"] for t in selected_toppings)
         self.result = {
-            "item_id":   item["id"],
-            "name":      item["name"],
+            "item_id":    item["id"],
+            "name":       item["name"],
             "base_price": item["price"],
-            "sweetness": self.sweetness_var.get(),
-            "ice":       self.ice_var.get(),
-            "toppings":  selected_toppings,
+            "sweetness":  self.sweetness_var.get(),
+            "ice":        self.ice_var.get(),
+            "toppings":   selected_toppings,
             "unit_price": item["price"] + topping_price,
             "quantity":   1,
         }
@@ -157,17 +199,17 @@ class MenuFrame(tk.Frame):
     메뉴 화면 프레임
     - 카테고리 탭으로 메뉴 필터
     - 각 메뉴 카드 클릭 → CustomizeDialog
-    - 주문 추가 후 on_add_to_cart(order_item) 콜백 호출
+    - on_add_to_cart(order_item) 콜백으로 장바구니 연결
 
     [대외 인터페이스]
     on_add_to_cart : callable(order_item: dict)
-        order_frame.py 에서 이 콜백을 전달받아 장바구니에 등록
     """
     def __init__(self, parent, on_add_to_cart, **kwargs):
         super().__init__(parent, bg=PASTEL["bg"], **kwargs)
         self.on_add_to_cart = on_add_to_cart
         self.menu_data      = load_menu()
         self.current_cat    = tk.StringVar(value="전체")
+        self._photo_refs    = []   # PhotoImage 참조 보관 (GC 방지)
 
         self._build_header()
         self._build_category_tabs()
@@ -188,14 +230,13 @@ class MenuFrame(tk.Frame):
 
         categories = ["전체"] + self.menu_data["categories"]
         for cat in categories:
-            btn = tk.Button(
+            tk.Button(
                 tab_frame, text=cat,
                 font=("맑은 고딕", 11),
                 bg=PASTEL["btn"], fg=PASTEL["text"],
                 relief="flat", padx=14, pady=4,
                 command=lambda c=cat: self._select_category(c),
-            )
-            btn.pack(side="left", padx=4)
+            ).pack(side="left", padx=4)
 
         self.tab_frame = tab_frame
 
@@ -230,6 +271,9 @@ class MenuFrame(tk.Frame):
         for widget in self.grid_frame.winfo_children():
             widget.destroy()
 
+        # 이전 이미지 참조 해제 후 새로 수집
+        self._photo_refs.clear()
+
         items = self.menu_data["items"]
         if category != "전체":
             items = [i for i in items if i["category"] == category]
@@ -243,6 +287,20 @@ class MenuFrame(tk.Frame):
                 padx=12, pady=12, cursor="hand2",
             )
             card.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
+
+            # ── 이미지 영역 ───────────────────────────────────
+            photo = _load_photo(item["id"], size=(120, 100))
+            if photo:
+                self._photo_refs.append(photo)   # GC 방지 필수
+                tk.Label(card, image=photo,
+                         bg=PASTEL["card"]).pack(pady=(0, 6))
+            else:
+                # 이미지 없으면 카테고리 이모지로 대체
+                emoji = CATEGORY_EMOJI.get(item.get("category", ""), "🥤")
+                tk.Label(card, text=emoji,
+                         font=("맑은 고딕", 32),
+                         bg=PASTEL["card"]).pack(pady=(0, 6))
+            # ─────────────────────────────────────────────────
 
             tk.Label(card, text=item["name"],
                      font=("맑은 고딕", 12, "bold"),
