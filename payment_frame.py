@@ -1,31 +1,38 @@
 import json
 import tkinter as tk
 from tkinter import ttk, messagebox
-
-from order_frame import save_order_to_file   # 결제 완료 후 저장
-
+from datetime import datetime
 
 MEMBERS_FILE = "data/members.json"
+ORDERS_FILE  = "data/orders.json"
+POINT_RATE   = 10
+
+# 적립품 교환 카탈로그
+REWARDS = [
+    {"name": "음료 50% 할인쿠폰", "points": 300, "desc": "다음 주문 시 사용 가능"},
+    {"name": "버블티 키링 굿즈",   "points": 500, "desc": "매장 내 수령"},
+    {"name": "무료 음료 쿠폰",     "points": 800, "desc": "당일 사용 가능"},
+]
 
 PASTEL = {
-    "bg":       "#FFF5F9",
-    "header":   "#F9C8D9",
-    "btn":      "#F4A7C0",
-    "accent":   "#D4547A",
-    "text":     "#3A2030",
-    "subtext":  "#7A5068",
-    "confirm":  "#E87FAA",
-    "confirm_t":"#FFFFFF",
-    "entry_bg": "#FFFFFF",
-    "card":     "#FFFFFF",
-    "green":    "#1D9E75",
-    "green_bg": "#E1F5EE",
-    "row_even": "#FFFFFF",
-    "row_odd":  "#FFF0F5",
+    "bg":        "#FFF5F9",
+    "header":    "#F9C8D9",
+    "btn":       "#F4A7C0",
+    "accent":    "#D4547A",
+    "text":      "#3A2030",
+    "subtext":   "#7A5068",
+    "confirm":   "#E87FAA",
+    "confirm_t": "#FFFFFF",
+    "card":      "#FFFFFF",
+    "green":     "#1D9E75",
+    "green_bg":  "#E1F5EE",
+    "row_even":  "#FFFFFF",
+    "row_odd":   "#FFF0F5",
+    "reward_bg": "#FFF0F5",
 }
 
 
-def _load_members() -> dict:
+def _load_members():
     try:
         with open(MEMBERS_FILE, encoding="utf-8") as f:
             return json.load(f)
@@ -33,260 +40,390 @@ def _load_members() -> dict:
         return {}
 
 
-def _save_members(members: dict):
+def _save_members(m):
     with open(MEMBERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(members, f, ensure_ascii=False, indent=2)
+        json.dump(m, f, ensure_ascii=False, indent=2)
 
 
-class PaymentFrame:
+def _load_orders():
+    try:
+        with open(ORDERS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _save_orders(o):
+    with open(ORDERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(o, f, ensure_ascii=False, indent=2)
+
+
+class PaymentFrame(tk.Frame):
     """
-    결제 팝업 (Toplevel)
-
-    [변경사항]
-    - tk.Frame 상속 제거 → 호출 시마다 Toplevel 팝업으로 생성
-    - order_frame 참조를 받아 결제 완료 후 장바구니 직접 초기화
-    - save_order_to_file() 을 결제 완료 시점으로 이동
-    - 포인트 차감 시 음수 방지 (used_pts = min(discount, total))
-    - member_frame.refresh_member_info() 로 UI 갱신 (의미 명확화)
+    결제 화면 프레임
 
     [대외 인터페이스]
-    receive_order(order: dict)
-        order_frame.py 에서 주문 확인 시 호출 → 팝업 열림
-
-    set_member_frame(member_frame)
-        main.py 에서 호출 — 포인트 적립 후 회원 화면 갱신용
-
-    set_order_frame(order_frame)
-        main.py 에서 호출 — 결제 완료 후 장바구니 초기화용
+    receive_order(order: dict)  ← order_frame.py 에서 호출
+    set_member_frame(mf)        ← main.py 에서 연결 (선택)
     """
 
-    def __init__(self):
-        self.member_frame = None
-        self.order_frame  = None
+    def __init__(self, parent, app=None, **kwargs):
+        super().__init__(parent, bg=PASTEL["bg"], **kwargs)
+        self.app            = app         # 페이지 전환용 (main.py App 인스턴스)
+        self.order          = None
+        self.member_frame   = None
+        self.use_points     = tk.BooleanVar(value=False)
+        self.payment_method = tk.StringVar(value="카드")
+        self._build_ui()
 
     # ── 외부 인터페이스 ──────────────────────────────────────
 
     def receive_order(self, order: dict):
-        """order_frame.py 에서 주문 확인 시 호출 → 결제 팝업 오픈"""
-        self._open_popup(order)
+        self.order = order
+        self.use_points.set(False)
+        self._refresh_order_summary()
+        self._refresh_points_section()
+        self._refresh_total()
 
     def set_member_frame(self, member_frame):
         self.member_frame = member_frame
 
-    def set_order_frame(self, order_frame):
-        self.order_frame = order_frame
+    def on_enter(self):
+        """페이지 진입 시 호출 (main.py navigate)"""
+        if self.order:
+            self._refresh_points_section()
+            self._refresh_total()
 
-    # ── 팝업 오픈 ────────────────────────────────────────────
+    # ── UI 빌드 ─────────────────────────────────────────────
 
-    def _open_popup(self, order: dict):
-        popup = tk.Toplevel()
-        popup.title("💳  결제")
-        popup.resizable(False, False)
-        popup.configure(bg=PASTEL["bg"])
-        popup.grab_set()
-
-        use_points     = tk.BooleanVar(value=False)
-        payment_method = tk.StringVar(value="카드")
-
-        # ── 헤더 ─────────────────────────────────────────────
-        header = tk.Frame(popup, bg=PASTEL["header"], pady=12)
-        header.pack(fill="x")
-        tk.Label(header, text="💳  결제",
+    def _build_ui(self):
+        # 헤더
+        hdr = tk.Frame(self, bg=PASTEL["header"], pady=12)
+        hdr.pack(fill="x")
+        tk.Button(hdr, text="←  메뉴로",
+                  font=("맑은 고딕", 11),
+                  bg=PASTEL["header"], fg=PASTEL["subtext"],
+                  relief="flat",
+                  command=self._go_back).pack(side="left", padx=16)
+        tk.Label(hdr, text="💳  결제",
                  font=("맑은 고딕", 16, "bold"),
-                 bg=PASTEL["header"], fg=PASTEL["accent"]).pack()
+                 bg=PASTEL["header"], fg=PASTEL["accent"]).pack(side="left")
 
-        # ── 주문 내역 요약 ────────────────────────────────────
-        tk.Label(popup, text="주문 내역",
-                 font=("맑은 고딕", 12, "bold"),
-                 bg=PASTEL["bg"], fg=PASTEL["text"]).pack(
-                     padx=20, pady=(14, 4), anchor="w")
+        # 스크롤 가능한 본문
+        canvas = tk.Canvas(self, bg=PASTEL["bg"], highlightthickness=0)
+        sb = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        self._body = tk.Frame(canvas, bg=PASTEL["bg"])
+        self._body.bind("<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=self._body, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
 
-        table_wrap = tk.Frame(popup, bg=PASTEL["bg"])
-        table_wrap.pack(fill="x", padx=20)
+        self._build_body()
+
+    def _build_body(self):
+        b = self._body
+
+        # ── 주문 내역 ─────────────────────────────────────────
+        tk.Label(b, text="주문 내역",
+                 font=("맑은 고딕", 13, "bold"),
+                 bg=PASTEL["bg"], fg=PASTEL["accent"]).pack(
+                     padx=24, pady=(18, 6), anchor="w")
+
+        wrap = tk.Frame(b, bg=PASTEL["bg"])
+        wrap.pack(fill="x", padx=24)
         cols = ("메뉴", "수량", "금액")
-        tree = ttk.Treeview(table_wrap, columns=cols,
-                             show="headings", height=min(len(order["items"]), 6))
-        col_widths = {"메뉴": 180, "수량": 50, "금액": 90}
-        for c in cols:
-            tree.heading(c, text=c)
-            tree.column(c, width=col_widths[c], anchor="center")
-        tree.pack(fill="x")
+        self.tree = ttk.Treeview(wrap, columns=cols, show="headings", height=5)
+        for c, w in zip(cols, [200, 60, 90]):
+            self.tree.heading(c, text=c)
+            self.tree.column(c, width=w, anchor="center")
+        self.tree.pack(fill="x")
 
-        for idx, item in enumerate(order["items"]):
-            tag = "even" if idx % 2 == 0 else "odd"
-            tree.insert("", "end",
-                        values=(item["name"], item["quantity"],
-                                f"{item['unit_price'] * item['quantity']:,}원"),
-                        tags=(tag,))
-        tree.tag_configure("even", background=PASTEL["row_even"])
-        tree.tag_configure("odd",  background=PASTEL["row_odd"])
-
-        ttk.Separator(popup, orient="horizontal").pack(fill="x", padx=20, pady=10)
+        ttk.Separator(b, orient="horizontal").pack(fill="x", padx=24, pady=14)
 
         # ── 포인트 사용 ───────────────────────────────────────
-        member_id = order.get("member_id")
-        pts_frame = tk.Frame(popup, bg=PASTEL["bg"])
-        pts_frame.pack(fill="x", padx=20, pady=(0, 8))
+        tk.Label(b, text="포인트 사용",
+                 font=("맑은 고딕", 13, "bold"),
+                 bg=PASTEL["bg"], fg=PASTEL["accent"]).pack(
+                     padx=24, pady=(0, 6), anchor="w")
 
-        pts_check = tk.Checkbutton(
-            pts_frame, text="포인트 사용",
-            variable=use_points,
+        pts_row = tk.Frame(b, bg=PASTEL["bg"])
+        pts_row.pack(fill="x", padx=24, pady=(0, 6))
+        self.points_check = tk.Checkbutton(
+            pts_row, text="보유 포인트 전액 사용  (1pt = 1원 할인)",
+            variable=self.use_points,
             font=("맑은 고딕", 11),
             bg=PASTEL["bg"], fg=PASTEL["text"],
             selectcolor=PASTEL["btn"],
             activebackground=PASTEL["bg"],
+            command=self._refresh_total,
         )
-        pts_check.pack(side="left")
-        pts_info = tk.Label(pts_frame, text="",
-                            font=("맑은 고딕", 10),
-                            bg=PASTEL["bg"], fg=PASTEL["subtext"])
-        pts_info.pack(side="left", padx=8)
+        self.points_check.pack(side="left")
+        self.points_info = tk.Label(pts_row, text="",
+                                     font=("맑은 고딕", 10),
+                                     bg=PASTEL["bg"], fg=PASTEL["subtext"])
+        self.points_info.pack(side="left", padx=10)
 
-        if member_id:
-            members = _load_members()
-            balance = members.get(member_id, {}).get("points", 0)
-            pts_info.config(text=f"보유 {balance:,}pt  (최대 {balance:,}원 할인)")
-            pts_check.config(state="normal")
-        else:
-            pts_info.config(text="비회원 — 포인트 사용 불가")
-            pts_check.config(state="disabled")
+        ttk.Separator(b, orient="horizontal").pack(fill="x", padx=24, pady=14)
+
+        # ── 적립품 교환 ───────────────────────────────────────
+        tk.Label(b, text="🎁  적립품 교환",
+                 font=("맑은 고딕", 13, "bold"),
+                 bg=PASTEL["bg"], fg=PASTEL["accent"]).pack(
+                     padx=24, pady=(0, 8), anchor="w")
+        self.rewards_frame = tk.Frame(b, bg=PASTEL["bg"])
+        self.rewards_frame.pack(fill="x", padx=24, pady=(0, 4))
+
+        ttk.Separator(b, orient="horizontal").pack(fill="x", padx=24, pady=14)
 
         # ── 결제 수단 ─────────────────────────────────────────
-        tk.Label(popup, text="결제 수단",
-                 font=("맑은 고딕", 12, "bold"),
-                 bg=PASTEL["bg"], fg=PASTEL["text"]).pack(
-                     padx=20, pady=(0, 6), anchor="w")
-        method_frame = tk.Frame(popup, bg=PASTEL["bg"])
-        method_frame.pack(fill="x", padx=20, pady=(0, 10))
+        tk.Label(b, text="결제 수단",
+                 font=("맑은 고딕", 13, "bold"),
+                 bg=PASTEL["bg"], fg=PASTEL["accent"]).pack(
+                     padx=24, pady=(0, 8), anchor="w")
+        method_row = tk.Frame(b, bg=PASTEL["bg"])
+        method_row.pack(padx=24, pady=(0, 6), anchor="w")
         for method in ["카드", "현금", "QR코드"]:
-            tk.Radiobutton(
-                method_frame, text=method,
-                variable=payment_method, value=method,
-                font=("맑은 고딕", 11),
-                bg=PASTEL["bg"], fg=PASTEL["text"],
-                selectcolor=PASTEL["btn"],
-                activebackground=PASTEL["bg"],
-            ).pack(side="left", padx=10)
+            tk.Radiobutton(method_row, text=method,
+                           variable=self.payment_method, value=method,
+                           font=("맑은 고딕", 12),
+                           bg=PASTEL["bg"], fg=PASTEL["text"],
+                           selectcolor=PASTEL["btn"],
+                           activebackground=PASTEL["bg"]).pack(
+                               side="left", padx=12)
 
-        ttk.Separator(popup, orient="horizontal").pack(fill="x", padx=20, pady=6)
+        ttk.Separator(b, orient="horizontal").pack(fill="x", padx=24, pady=14)
 
-        # ── 최종 금액 표시 ────────────────────────────────────
-        total_label = tk.Label(popup, text="",
-                               font=("맑은 고딕", 14, "bold"),
-                               bg=PASTEL["bg"], fg=PASTEL["accent"])
-        total_label.pack(padx=20, pady=(0, 2), anchor="e")
-        earn_label = tk.Label(popup, text="",
-                              font=("맑은 고딕", 10),
-                              bg=PASTEL["bg"], fg=PASTEL["subtext"])
-        earn_label.pack(padx=20, pady=(0, 10), anchor="e")
+        # ── 합계 & 결제 버튼 ──────────────────────────────────
+        self.total_label = tk.Label(b, text="합계: 0원",
+                                     font=("맑은 고딕", 15, "bold"),
+                                     bg=PASTEL["bg"], fg=PASTEL["accent"])
+        self.total_label.pack(padx=24, pady=(0, 4), anchor="e")
+        self.earn_label = tk.Label(b, text="",
+                                    font=("맑은 고딕", 10),
+                                    bg=PASTEL["bg"], fg=PASTEL["subtext"])
+        self.earn_label.pack(padx=24, pady=(0, 12), anchor="e")
 
-        def refresh_total(*_):
-            total    = order["total_price"]
-            discount = 0
-            if use_points.get() and member_id:
-                members = _load_members()
-                balance = members.get(member_id, {}).get("points", 0)
-                # ✅ 포인트 할인은 총액을 초과할 수 없음
-                discount = min(balance, total)
-            final  = max(total - discount, 0)
-            earned = (final // 1000) * 10
-            total_label.config(
-                text=f"합계: {final:,}원" + (f"  (-{discount:,}원)" if discount else "")
-            )
-            earn_label.config(text=f"결제 후 적립 예정: {earned:,}pt")
-
-        use_points.trace_add("write", refresh_total)
-        refresh_total()
-
-        # ── 결제 완료 버튼 ────────────────────────────────────
-        def do_payment():
-            total     = order["total_price"]
-            discount  = 0
-
-            if use_points.get() and member_id:
-                members  = _load_members()
-                balance  = members.get(member_id, {}).get("points", 0)
-                # ✅ 음수 방지: 할인은 실제 잔액과 총액 중 작은 값
-                discount  = min(balance, total)
-                used_pts  = discount
-                members[member_id]["points"] -= used_pts
-                _save_members(members)
-
-            final  = max(total - discount, 0)
-            earned = (final // 1000) * 10
-
-            # ✅ 포인트 적립
-            if member_id:
-                members = _load_members()
-                members[member_id]["points"] += earned
-                _save_members(members)
-                # ✅ UI 갱신 — 의미 명확한 메서드명 사용
-                if self.member_frame and hasattr(self.member_frame, "refresh_member_info"):
-                    self.member_frame.refresh_member_info()
-
-            # ✅ 실제 결제 완료 후에만 파일 저장
-            save_order_to_file(order)
-
-            # ✅ 결제 완료 후 장바구니 초기화
-            if self.order_frame:
-                self.order_frame.clear_cart()
-
-            popup.destroy()
-            self._show_receipt(payment_method.get(), final, discount, earned)
-
-        tk.Button(popup, text="결제 완료  ✓",
-                  font=("맑은 고딕", 13, "bold"),
+        tk.Button(b, text="결제 완료  ✓",
+                  font=("맑은 고딕", 14, "bold"),
                   bg=PASTEL["confirm"], fg=PASTEL["confirm_t"],
-                  relief="flat", pady=8,
-                  command=do_payment).pack(fill="x", padx=20, pady=(0, 16))
+                  relief="flat", pady=10,
+                  command=self._do_payment).pack(
+                      fill="x", padx=24, pady=(0, 24))
 
-        # 팝업 중앙 정렬
-        popup.update_idletasks()
-        sw = popup.winfo_screenwidth()
-        sh = popup.winfo_screenheight()
-        pw = popup.winfo_width()
-        ph = popup.winfo_height()
-        popup.geometry(f"+{(sw - pw) // 2}+{(sh - ph) // 2}")
+    # ── 갱신 ────────────────────────────────────────────────
 
-    # ── 영수증 팝업 ───────────────────────────────────────────
+    def _refresh_order_summary(self):
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+        if not self.order:
+            return
+        for idx, item in enumerate(self.order["items"]):
+            tag = "even" if idx % 2 == 0 else "odd"
+            self.tree.insert("", "end", tags=(tag,),
+                values=(item["name"], item["quantity"],
+                        f"{item['unit_price'] * item['quantity']:,}원"))
+        self.tree.tag_configure("even", background=PASTEL["row_even"])
+        self.tree.tag_configure("odd",  background=PASTEL["row_odd"])
 
-    def _show_receipt(self, method: str, final: int, discount: int, earned: int):
-        win = tk.Toplevel()
+    def _refresh_points_section(self):
+        mid = self.order.get("member_id") if self.order else None
+        if mid:
+            members = _load_members()
+            balance = members.get(mid, {}).get("points", 0)
+            self.points_info.config(text=f"보유: {balance:,}pt")
+            self.points_check.config(state="normal" if balance > 0 else "disabled")
+        else:
+            self.points_info.config(text="비회원 — 포인트 사용 불가")
+            self.points_check.config(state="disabled")
+        self._refresh_rewards()
+
+    def _refresh_rewards(self):
+        for w in self.rewards_frame.winfo_children():
+            w.destroy()
+
+        mid = self.order.get("member_id") if self.order else None
+        if not mid:
+            tk.Label(self.rewards_frame,
+                     text="로그인 후 이용 가능합니다.",
+                     font=("맑은 고딕", 10),
+                     bg=PASTEL["bg"], fg=PASTEL["subtext"]).pack(anchor="w")
+            return
+
+        members = _load_members()
+        balance = members.get(mid, {}).get("points", 0)
+
+        for reward in REWARDS:
+            row = tk.Frame(self.rewards_frame, bg=PASTEL["reward_bg"],
+                            relief="solid", bd=1, padx=12, pady=8)
+            row.pack(fill="x", pady=3)
+
+            info = tk.Frame(row, bg=PASTEL["reward_bg"])
+            info.pack(side="left", fill="x", expand=True)
+            tk.Label(info, text=f"🎀  {reward['name']}",
+                     font=("맑은 고딕", 11, "bold"),
+                     bg=PASTEL["reward_bg"], fg=PASTEL["text"]).pack(anchor="w")
+            tk.Label(info, text=f"{reward['points']:,}pt  |  {reward['desc']}",
+                     font=("맑은 고딕", 10),
+                     bg=PASTEL["reward_bg"], fg=PASTEL["subtext"]).pack(anchor="w")
+
+            can = balance >= reward["points"]
+            tk.Button(row, text="교환",
+                      font=("맑은 고딕", 10, "bold"),
+                      bg=PASTEL["confirm"] if can else PASTEL["btn"],
+                      fg=PASTEL["confirm_t"] if can else PASTEL["subtext"],
+                      relief="flat", padx=12, pady=4,
+                      state="normal" if can else "disabled",
+                      command=lambda r=reward: self._redeem(r)).pack(side="right")
+
+    def _refresh_total(self):
+        if not self.order:
+            return
+        total    = self.order["total_price"]
+        discount = 0
+        mid      = self.order.get("member_id")
+
+        if self.use_points.get() and mid:
+            members  = _load_members()
+            balance  = members.get(mid, {}).get("points", 0)
+            # ✅ 버그 수정: 포인트가 총 금액보다 많아도 최대 total까지만 할인
+            discount = min(balance, total)
+
+        final  = max(total - discount, 0)
+        earned = (final // 1000) * POINT_RATE
+
+        disc_str = f"  (-{discount:,}원)" if discount else ""
+        self.total_label.config(text=f"합계: {final:,}원{disc_str}")
+        self.earn_label.config(text=f"결제 후 적립: +{earned:,}pt")
+
+    # ── 적립품 교환 ──────────────────────────────────────────
+
+    def _redeem(self, reward):
+        mid     = self.order.get("member_id") if self.order else None
+        if not mid:
+            return
+        members = _load_members()
+        balance = members.get(mid, {}).get("points", 0)
+
+        if balance < reward["points"]:
+            messagebox.showwarning("포인트 부족", "포인트가 부족합니다.")
+            return
+        if not messagebox.askyesno("교환 확인",
+                f"'{reward['name']}' 으로 교환하시겠습니까?\n"
+                f"차감 포인트: {reward['points']:,}pt"):
+            return
+
+        members[mid]["points"] -= reward["points"]
+        _save_members(members)
+        new_bal = members[mid]["points"]
+        messagebox.showinfo("교환 완료",
+                f"✅  교환 완료!\n남은 포인트: {new_bal:,}pt")
+        self._refresh_points_section()
+        self._refresh_total()
+
+    # ── 결제 처리 ────────────────────────────────────────────
+
+    def _do_payment(self):
+        if not self.order:
+            messagebox.showwarning("알림", "주문 내역이 없습니다.")
+            return
+
+        total    = self.order["total_price"]
+        discount = 0
+        mid      = self.order.get("member_id")
+
+        if self.use_points.get() and mid:
+            members  = _load_members()
+            balance  = members.get(mid, {}).get("points", 0)
+            discount = min(balance, total)  # ✅ 버그 수정
+            members[mid]["points"] -= discount
+            _save_members(members)
+
+        final  = max(total - discount, 0)
+        earned = (final // 1000) * POINT_RATE
+
+        if mid:
+            members = _load_members()
+            members[mid]["points"] += earned
+            _save_members(members)
+            if self.member_frame:
+                self.member_frame.add_points(mid, 0)
+
+        # ✅ 결제 완료 후 orders.json 저장
+        orders = _load_orders()
+        orders.append({
+            "items":         self.order["items"],
+            "total_price":   total,
+            "discount":      discount,
+            "final_price":   final,
+            "earned_points": earned,
+            "member_id":     mid,
+            "payment":       self.payment_method.get(),
+            "timestamp":     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        })
+        _save_orders(orders)
+
+        self._show_receipt(final, discount, earned)
+
+    def _show_receipt(self, final, discount, earned):
+        mid = self.order.get("member_id") if self.order else None
+        win = tk.Toplevel(self)
         win.title("결제 완료")
         win.resizable(False, False)
         win.configure(bg=PASTEL["bg"])
         win.grab_set()
 
         tk.Label(win, text="✅  결제가 완료되었습니다!",
-                 font=("맑은 고딕", 14, "bold"),
-                 bg=PASTEL["bg"], fg=PASTEL["green"]).pack(padx=30, pady=(20, 8))
+                 font=("맑은 고딕", 15, "bold"),
+                 bg=PASTEL["bg"], fg=PASTEL["green"]).pack(padx=40, pady=(24, 10))
 
-        info_frame = tk.Frame(win, bg=PASTEL["green_bg"], relief="solid", bd=1)
-        info_frame.pack(padx=24, pady=8, fill="x")
+        info = tk.Frame(win, bg=PASTEL["green_bg"], relief="solid", bd=1)
+        info.pack(padx=30, pady=6, fill="x")
 
-        rows = [("결제 수단", method), ("결제 금액", f"{final:,}원")]
+        rows = [("결제 수단", self.payment_method.get()),
+                ("결제 금액", f"{final:,}원")]
         if discount:
             rows.append(("포인트 할인", f"-{discount:,}원"))
-        rows.append(("적립 포인트", f"+{earned:,}pt"))
+        if mid:
+            members = _load_members()
+            new_bal = members.get(mid, {}).get("points", 0)
+            rows.append(("적립 포인트", f"+{earned:,}pt"))
+            rows.append(("보유 포인트", f"{new_bal:,}pt  🎉"))
 
         for label, value in rows:
-            row = tk.Frame(info_frame, bg=PASTEL["green_bg"])
-            row.pack(fill="x", padx=14, pady=3)
-            tk.Label(row, text=label,
-                     font=("맑은 고딕", 11),
+            r = tk.Frame(info, bg=PASTEL["green_bg"])
+            r.pack(fill="x", padx=16, pady=5)
+            tk.Label(r, text=label, font=("맑은 고딕", 11),
                      bg=PASTEL["green_bg"], fg=PASTEL["subtext"],
                      width=12, anchor="w").pack(side="left")
-            tk.Label(row, text=value,
-                     font=("맑은 고딕", 11, "bold"),
+            tk.Label(r, text=value, font=("맑은 고딕", 11, "bold"),
                      bg=PASTEL["green_bg"], fg=PASTEL["text"]).pack(side="left")
 
-        tk.Button(win, text="확인",
+        tk.Button(win, text="처음으로  🏠",
                   font=("맑은 고딕", 12, "bold"),
                   bg=PASTEL["confirm"], fg=PASTEL["confirm_t"],
-                  relief="flat", padx=30, pady=6,
-                  command=win.destroy).pack(pady=16)
+                  relief="flat", padx=30, pady=8,
+                  command=lambda: self._finish(win)).pack(pady=20)
 
         win.update_idletasks()
-        sw = win.winfo_screenwidth()
-        sh = win.winfo_screenheight()
-        win.geometry(f"+{(sw - win.winfo_width()) // 2}+{(sh - win.winfo_height()) // 2}")
+        x = self.winfo_rootx() + (self.winfo_width()  - win.winfo_width())  // 2
+        y = self.winfo_rooty() + (self.winfo_height() - win.winfo_height()) // 2
+        win.geometry(f"+{x}+{y}")
+
+    def _finish(self, win):
+        win.destroy()
+        self.order = None
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+        self.total_label.config(text="합계: 0원")
+        self.earn_label.config(text="")
+        self.points_info.config(text="")
+        self.use_points.set(False)
+        if self.app:
+            self.app.state["member_id"] = None
+            self.app.navigate("welcome")
+
+    def _go_back(self):
+        if self.app:
+            self.app.navigate("menu")
