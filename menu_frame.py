@@ -447,12 +447,12 @@ class MenuFrame(tk.Frame):
                         relief="solid", bd=1,
                         padx=6, pady=6, cursor="hand2")
 
-        # 토핑 이미지 파일명 매핑 (실제 파일명 기준)
+        # 토핑 이미지 파일명 매핑: t1=타피오카 펄, t2=코코넛 젤리, t3=푸딩, t4=알로에
         TOPPING_FILE = {
-            "타피오카 펄": "topping_펄",
-            "코코넛 젤리": "topping_ 젤리",   # 파일명에 공백 있음
-            "푸딩":        "topping_푸딩",
-            "알로에":      "topping_알로에",
+            "타피오카 펄": "t1",
+            "코코넛 젤리": "t2",
+            "푸딩":        "t3",
+            "알로에":      "t4",
         }
         TOPPING_EMOJI = {
             "타피오카 펄": "🫧",
@@ -460,7 +460,7 @@ class MenuFrame(tk.Frame):
             "푸딩":        "🍮",
             "알로에":      "🌿",
         }
-        fname   = TOPPING_FILE.get(topping["name"], f"topping_{topping['name']}")
+        fname   = TOPPING_FILE.get(topping["name"], f"t_{topping['name']}")
         t_photo = _load_photo(fname, max_w=60, max_h=60)
         if t_photo:
             self._photo_refs.append(t_photo)
