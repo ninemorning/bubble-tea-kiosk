@@ -36,6 +36,13 @@ def _save_orders(orders):
         json.dump(orders, f, ensure_ascii=False, indent=2)
 
 
+def save_order_to_file(order: dict):
+    """주문 내역을 orders.json 에 누적 저장 (payment_frame 에서 실제 결제 후 호출)"""
+    orders = _load_orders()
+    orders.append(order)
+    _save_orders(orders)
+
+
 def calc_points(total_price: int) -> int:
     """1,000원당 POINT_RATE 포인트 적립"""
     return (total_price // 1000) * POINT_RATE
@@ -49,16 +56,11 @@ class OrderFrame(tk.Frame):
     add_item(order_item: dict)
         menu_frame.py 에서 호출 — 아이템을 장바구니에 추가
 
+    clear_cart()
+        payment_frame.py 가 결제 완료 후 호출 — 장바구니 초기화
+
     on_confirm_order: callable(order: dict) | None
-        payment_frame.py 가 설정 — 결제 화면으로 넘어갈 때 호출됨
-        order 구조:
-            {
-              "items": [...],
-              "total_price": int,
-              "earned_points": int,
-              "member_id": str | None,
-              "timestamp": str
-            }
+        payment_frame.py 가 설정 — 결제 팝업을 열 때 호출됨
 
     set_member(member_id: str | None)
         member_frame.py 가 로그인/로그아웃 시 호출
@@ -75,10 +77,7 @@ class OrderFrame(tk.Frame):
     # ── 외부 인터페이스 ──────────────────────────────────────
 
     def add_item(self, order_item: dict):
-        """
-        menu_frame.py → 여기로 아이템 전달
-        동일 상품+옵션이면 수량 증가, 아니면 새 행 추가
-        """
+        """menu_frame.py → 여기로 아이템 전달. 동일 옵션이면 수량 증가."""
         for cart_item in self.cart:
             if self._same_option(cart_item, order_item):
                 cart_item["quantity"] += 1
@@ -91,6 +90,11 @@ class OrderFrame(tk.Frame):
         """member_frame.py 에서 로그인/로그아웃 시 호출"""
         self.member_id = member_id
         self._refresh_summary()
+
+    def clear_cart(self):
+        """payment_frame.py 가 결제 완료 후 호출 — 장바구니 완전 초기화"""
+        self.cart.clear()
+        self._refresh_cart()
 
     # ── UI 빌드 ─────────────────────────────────────────────
 
@@ -141,7 +145,7 @@ class OrderFrame(tk.Frame):
                   font=("맑은 고딕", 10),
                   bg=PASTEL["remove"], fg=PASTEL["text"],
                   relief="flat", padx=10,
-                  command=self._clear_cart).pack(side="right", padx=4)
+                  command=self._clear_cart_confirm).pack(side="right", padx=4)
 
         ttk.Separator(self, orient="horizontal").pack(fill="x", padx=16, pady=6)
 
@@ -196,7 +200,7 @@ class OrderFrame(tk.Frame):
     def _on_tree_click(self, event):
         region = self.tree.identify_region(event.x, event.y)
         col    = self.tree.identify_column(event.x)
-        if region == "cell" and col == "#5":   # 삭제 아이콘 열
+        if region == "cell" and col == "#5":
             self._remove_selected()
 
     def _selected_index(self) -> int | None:
@@ -227,7 +231,8 @@ class OrderFrame(tk.Frame):
             self.cart.pop(idx)
             self._refresh_cart()
 
-    def _clear_cart(self):
+    def _clear_cart_confirm(self):
+        """버튼 클릭 시 확인 후 비우기 (내부용)"""
         if self.cart and messagebox.askyesno("확인", "장바구니를 비울까요?"):
             self.cart.clear()
             self._refresh_cart()
@@ -247,16 +252,13 @@ class OrderFrame(tk.Frame):
             "timestamp":     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
 
-        _save_order_to_file(order)
-
+        # ✅ 파일 저장은 여기서 하지 않음 — 실제 결제 완료 후 payment_frame 에서 저장
         if callable(self.on_confirm_order):
-            self.on_confirm_order(order)   # → payment_frame.py
+            self.on_confirm_order(order)   # → payment_frame.py (팝업 오픈)
         else:
             messagebox.showinfo(
                 "주문 완료",
-                f"주문이 접수되었습니다!\n"
-                f"합계: {total:,}원\n"
-                f"적립 포인트: {points:,}pt"
+                f"주문이 접수되었습니다!\n합계: {total:,}원\n적립 포인트: {points:,}pt"
             )
             self.cart.clear()
             self._refresh_cart()
@@ -268,16 +270,8 @@ class OrderFrame(tk.Frame):
 
     @staticmethod
     def _same_option(a: dict, b: dict) -> bool:
-        """동일 상품 + 동일 옵션 여부 판단"""
-        return (a["item_id"]  == b["item_id"]  and
+        return (a["item_id"]   == b["item_id"]  and
                 a["sweetness"] == b["sweetness"] and
                 a["ice"]       == b["ice"]       and
                 [t["name"] for t in a["toppings"]] ==
                 [t["name"] for t in b["toppings"]])
-
-
-def _save_order_to_file(order: dict):
-    """주문 내역을 orders.json 에 누적 저장"""
-    orders = _load_orders()
-    orders.append(order)
-    _save_orders(orders)

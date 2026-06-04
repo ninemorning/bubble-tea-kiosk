@@ -12,21 +12,23 @@ def main():
     root.minsize(1500, 720)
     root.configure(bg="#FFF5F9")
     root.resizable(True, True)
-    
-    # 모듈 초기화 (의존 순서대로)
-    payment_frame = PaymentFrame(root)
-    order_frame   = OrderFrame(root,  on_confirm_order=payment_frame.receive_order)
-    member_frame  = MemberFrame(root, on_login=order_frame.set_member)
-    menu_frame    = MenuFrame(root,   on_add_to_cart=order_frame.add_item)
 
-    # payment ↔ member 포인트 적립 연결
-    payment_frame.set_member_frame(member_frame)
+    # PaymentFrame 은 이제 팝업 관리 객체 (Frame 위젯 아님)
+    payment = PaymentFrame()
 
-    # 레이아웃: 왼쪽 메뉴 | 가운데 장바구니 | 오른쪽 회원+결제
-    menu_frame.pack(   side="left",  fill="both", expand=True)
-    order_frame.pack(  side="left",  fill="y",    padx=4, pady=8, ipadx=4)
-    member_frame.pack( side="left",  fill="y",    padx=4, pady=8, ipadx=4)
-    payment_frame.pack(side="left",  fill="y",    padx=4, pady=8, ipadx=4)
+    order_frame  = OrderFrame(root, on_confirm_order=payment.receive_order)
+    member_frame = MemberFrame(root, on_login=order_frame.set_member)
+    menu_frame   = MenuFrame(root,  on_add_to_cart=order_frame.add_item)
+
+    # 연결
+    payment.set_member_frame(member_frame)
+    payment.set_order_frame(order_frame)   # ✅ 결제 후 장바구니 초기화용
+
+    # 레이아웃: 왼쪽 메뉴 | 가운데 장바구니 | 오른쪽 회원
+    menu_frame.pack(  side="left", fill="both", expand=True)
+    order_frame.pack( side="left", fill="y",    padx=4, pady=8, ipadx=4)
+    member_frame.pack(side="left", fill="y",    padx=4, pady=8, ipadx=4)
+    # payment_frame 은 pack 하지 않음 — 팝업으로 동작
 
     root.mainloop()
 

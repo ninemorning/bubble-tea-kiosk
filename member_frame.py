@@ -56,13 +56,18 @@ class MemberFrame(tk.Frame):
     # ── 외부 인터페이스 ──────────────────────────────────────
 
     def add_points(self, member_id: str, points: int):
-        """payment_frame.py 에서 결제 완료 후 호출"""
+        """하위 호환용 — refresh_member_info() 사용 권장"""
         members = _load_members()
         if member_id in members:
             members[member_id]["points"] += points
             _save_members(members)
             if self.current_id == member_id:
                 self._refresh_info()
+
+    def refresh_member_info(self):
+        """✅ payment_frame 에서 적립/차감 후 UI만 갱신 (DB 쓰기 없음)"""
+        if self.current_id:
+            self._refresh_info()
 
     # ── UI 빌드 ─────────────────────────────────────────────
 
