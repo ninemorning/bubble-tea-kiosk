@@ -16,5 +16,28 @@
     "earned_points": 50,
     "member_id": null,
     "timestamp": "2026-06-02 11:36:01"
+  },
+  {
+    "items": [
+      {
+        "item_id": 2,
+        "name": "흑당 밀크티",
+        "base_price": 5900,
+        "sweetness": 50,
+        "ice": "정량",
+        "toppings": [
+          {
+            "name": "타피오카 펄",
+            "price": 500
+          }
+        ],
+        "unit_price": 6400,
+        "quantity": 1
+      }
+    ],
+    "total_price": 6400,
+    "earned_points": 60,
+    "member_id": null,
+    "timestamp": "2026-06-04 12:25:38"
   }
 ]
