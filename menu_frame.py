@@ -96,11 +96,16 @@ class MenuFrame(tk.Frame):
     """
     [대외 인터페이스]
     on_add_to_cart : callable(order_item: dict)
+    on_open_cart   : callable()  — 장바구니 팝업 열기
+    get_cart       : callable() -> list  — 현재 카트 리스트 반환
     """
 
-    def __init__(self, parent, on_add_to_cart, **kwargs):
+    def __init__(self, parent, on_add_to_cart,
+                 on_open_cart=None, get_cart=None, order_frame=None, **kwargs):
         super().__init__(parent, bg=C["bg"], **kwargs)
         self.on_add_to_cart = on_add_to_cart
+        self.on_open_cart   = on_open_cart
+        self.get_cart       = get_cart        # () -> list[dict]
         self.menu_data      = load_menu()
         self._photo_refs    = []
 
@@ -124,10 +129,10 @@ class MenuFrame(tk.Frame):
     # ────────────────────────────────────────────────────────
 
     def _build_layout(self):
-        header = tk.Frame(self, bg=C["header"], pady=10)
+        header = tk.Frame(self, bg=C["header"], pady=8)
         header.pack(fill="x")
         tk.Label(header, text="🧋  버블티 키오스크",
-                 font=("맑은 고딕", 17, "bold"),
+                 font=("맑은 고딕", 14, "bold"),
                  bg=C["header"], fg=C["accent"]).pack()
 
         body = tk.Frame(self, bg=C["bg"])
@@ -139,7 +144,7 @@ class MenuFrame(tk.Frame):
 
     # ── 사이드바 ─────────────────────────────────────────────
     def _build_sidebar(self, parent):
-        sb = tk.Frame(parent, bg=C["sidebar_bg"], width=90)
+        sb = tk.Frame(parent, bg=C["sidebar_bg"], width=72)
         sb.pack(side="left", fill="y")
         sb.pack_propagate(False)
 
@@ -158,15 +163,15 @@ class MenuFrame(tk.Frame):
             inner.pack(side="left", fill="both", expand=True)
 
             icon = tk.Label(inner, text=emoji,
-                            font=("맑은 고딕", 18),
+                            font=("맑은 고딕", 15),
                             bg=C["sidebar_bg"], fg=C["text"],
-                            pady=6)
+                            pady=4)
             icon.pack()
             lbl = tk.Label(inner, text=cat,
-                           font=("맑은 고딕", 9),
+                           font=("맑은 고딕", 8),
                            bg=C["sidebar_bg"], fg=C["subtext"],
                            pady=0)
-            lbl.pack(pady=(0, 8))
+            lbl.pack(pady=(0, 6))
 
             self._sidebar_btns[cat] = (btn_frame, inner, icon, lbl, bar)
 
@@ -177,12 +182,12 @@ class MenuFrame(tk.Frame):
 
     # ── 메뉴 리스트 ─────────────────────────────────────────
     def _build_list_panel(self, parent):
-        panel = tk.Frame(parent, bg=C["list_bg"], width=200)
+        panel = tk.Frame(parent, bg=C["list_bg"], width=150)
         panel.pack(side="left", fill="y")
         panel.pack_propagate(False)
 
         canvas = tk.Canvas(panel, bg=C["list_bg"],
-                           highlightthickness=0, width=190)
+                           highlightthickness=0, width=145)
         sb = ttk.Scrollbar(panel, orient="vertical", command=canvas.yview)
         self._list_inner = tk.Frame(canvas, bg=C["list_bg"])
 
@@ -203,21 +208,62 @@ class MenuFrame(tk.Frame):
         panel = tk.Frame(parent, bg=C["detail_bg"])
         panel.pack(side="left", fill="both", expand=True)
 
-        # 하단 고정 바
-        bottom = tk.Frame(panel, bg=C["detail_bg"], pady=10, padx=20)
+        # 하단 고정 바 — 왼쪽: 카트(클릭→팝업), 오른쪽: 담기 버튼
+        bottom = tk.Frame(panel, bg="#FFFFFF", pady=0, padx=0)
         bottom.pack(fill="x", side="bottom")
         ttk.Separator(panel, orient="horizontal").pack(fill="x", side="bottom")
 
-        self._total_label = tk.Label(bottom, text="합계: 0원",
-                                     font=("맑은 고딕", 14, "bold"),
-                                     bg=C["detail_bg"], fg=C["accent"])
-        self._total_label.pack(side="left")
+        # 왼쪽: 카트 아이콘 클릭 → 팝업
+        left_area = tk.Frame(bottom, bg="#FFFFFF", cursor="hand2")
+        left_area.pack(side="left", padx=14, pady=10)
 
-        tk.Button(bottom, text="장바구니 담기  +",
-                  font=("맑은 고딕", 13, "bold"),
+        # 카트 아이콘 원형 배경
+        cart_circle = tk.Frame(left_area, bg="#555555", width=50, height=50)
+        cart_circle.pack(side="left")
+        cart_circle.pack_propagate(False)
+        self._cart_icon_lbl = tk.Label(cart_circle, text="🛒",
+                                        font=("맑은 고딕", 17),
+                                        bg="#555555", fg="white",
+                                        cursor="hand2")
+        self._cart_icon_lbl.place(relx=0.5, rely=0.5, anchor="center")
+
+        # 카트 개수 뱃지
+        self._cart_badge = tk.Label(cart_circle, text="0",
+                                     font=("맑은 고딕", 8, "bold"),
+                                     bg="#E87FAA", fg="white",
+                                     width=2)
+        self._cart_badge.place(relx=0.72, rely=0.08)
+
+        # 금액 & 상태 텍스트
+        price_box = tk.Frame(left_area, bg="#FFFFFF", cursor="hand2")
+        price_box.pack(side="left", padx=(10, 0))
+        self._cart_total_label = tk.Label(price_box, text="₩ 0",
+                                           font=("맑은 고딕", 13, "bold"),
+                                           bg="#FFFFFF", fg=C["text"],
+                                           cursor="hand2")
+        self._cart_total_label.pack(anchor="w")
+        self._cart_status = tk.Label(price_box, text="미선택 상품",
+                                      font=("맑은 고딕", 9),
+                                      bg="#FFFFFF", fg="#AAAAAA",
+                                      cursor="hand2")
+        self._cart_status.pack(anchor="w")
+
+        # 클릭 바인딩 — 카트 팝업 열기
+        def _open():
+            if callable(self.on_open_cart):
+                self.on_open_cart()
+        for w in [left_area, cart_circle, self._cart_icon_lbl,
+                  price_box, self._cart_total_label, self._cart_status,
+                  self._cart_badge]:
+            w.bind("<Button-1>", lambda e: _open())
+
+        # 오른쪽: 담기 버튼
+        self._total_label = tk.Label(bottom, text="")  # 더미 (내부 호환용)
+        tk.Button(bottom, text="장바구니 담기",
+                  font=("맑은 고딕", 12, "bold"),
                   bg=C["add_btn"], fg=C["add_txt"],
-                  relief="flat", padx=24, pady=8,
-                  command=self._add_to_cart).pack(side="right")
+                  relief="flat", padx=28, pady=14,
+                  command=self._add_to_cart).pack(side="right", fill="y")
 
         # 스크롤 영역
         canvas = tk.Canvas(panel, bg=C["detail_bg"], highlightthickness=0)
@@ -346,29 +392,29 @@ class MenuFrame(tk.Frame):
         toppings = options["toppings"]
 
         # 큰 이미지
-        photo = _load_photo(item["id"], max_w=340, max_h=280)
+        photo = _load_photo(item["id"], max_w=220, max_h=180)
         if photo:
             self._photo_refs.append(photo)
             tk.Label(self._detail_inner, image=photo,
-                     bg=C["detail_bg"]).pack(pady=(20, 0))
+                     bg=C["detail_bg"]).pack(pady=(12, 0))
         else:
             emoji = CATEGORY_EMOJI.get(item.get("category", ""), "🥤")
             tk.Label(self._detail_inner, text=emoji,
-                     font=("맑은 고딕", 64),
-                     bg=C["detail_bg"]).pack(pady=(24, 0))
+                     font=("맑은 고딕", 48),
+                     bg=C["detail_bg"]).pack(pady=(16, 0))
 
         # 이름 / 가격
         tk.Label(self._detail_inner, text=item["name"],
-                 font=("맑은 고딕", 20, "bold"),
+                 font=("맑은 고딕", 15, "bold"),
                  bg=C["detail_bg"], fg=C["text"]).pack(
-                     anchor="w", padx=24, pady=(16, 0))
+                     anchor="w", padx=16, pady=(10, 0))
         tk.Label(self._detail_inner,
                  text=f"₩ {item['price']:,}",
-                 font=("맑은 고딕", 18, "bold"),
+                 font=("맑은 고딕", 13, "bold"),
                  bg=C["detail_bg"], fg=C["accent"]).pack(
-                     anchor="w", padx=24, pady=(4, 14))
+                     anchor="w", padx=16, pady=(2, 8))
 
-        ttk.Separator(self._detail_inner).pack(fill="x", padx=24, pady=4)
+        ttk.Separator(self._detail_inner).pack(fill="x", padx=16, pady=3)
 
         # 당도
         self._build_option_section(
@@ -379,7 +425,7 @@ class MenuFrame(tk.Frame):
             set_val=lambda v: setattr(self, "_sweetness_val", v),
             attr="_sweetness_btns",
         )
-        ttk.Separator(self._detail_inner).pack(fill="x", padx=24, pady=4)
+        ttk.Separator(self._detail_inner).pack(fill="x", padx=16, pady=3)
 
         # 얼음
         self._build_option_section(
@@ -390,34 +436,34 @@ class MenuFrame(tk.Frame):
             set_val=lambda v: setattr(self, "_ice_val", v),
             attr="_ice_btns",
         )
-        ttk.Separator(self._detail_inner).pack(fill="x", padx=24, pady=4)
+        ttk.Separator(self._detail_inner).pack(fill="x", padx=16, pady=3)
 
         # 토핑
         tk.Label(self._detail_inner, text="토핑  (복수 선택 가능)",
-                 font=("맑은 고딕", 12, "bold"),
+                 font=("맑은 고딕", 11, "bold"),
                  bg=C["detail_bg"], fg=C["text"]).pack(
-                     anchor="w", padx=24, pady=(10, 6))
+                     anchor="w", padx=16, pady=(8, 4))
 
         grid = tk.Frame(self._detail_inner, bg=C["detail_bg"])
-        grid.pack(fill="x", padx=24, pady=(0, 16))
+        grid.pack(fill="x", padx=16, pady=(0, 10))
         for idx, t in enumerate(toppings):
             tc = self._make_topping_card(grid, t)
-            tc.grid(row=idx // 4, column=idx % 4, padx=4, pady=4, sticky="nsew")
+            tc.grid(row=idx // 4, column=idx % 4, padx=3, pady=3, sticky="nsew")
             self._topping_cards[t["name"]] = tc
         for c in range(4):
             grid.columnconfigure(c, weight=1)
 
-        tk.Label(self._detail_inner, bg=C["detail_bg"]).pack(pady=8)
+        tk.Label(self._detail_inner, bg=C["detail_bg"]).pack(pady=4)
 
     def _build_option_section(self, label, choices, values,
                                get_val, set_val, attr):
         tk.Label(self._detail_inner, text=label,
-                 font=("맑은 고딕", 12, "bold"),
+                 font=("맑은 고딕", 11, "bold"),
                  bg=C["detail_bg"], fg=C["text"]).pack(
-                     anchor="w", padx=24, pady=(10, 6))
+                     anchor="w", padx=16, pady=(8, 4))
 
         row = tk.Frame(self._detail_inner, bg=C["detail_bg"])
-        row.pack(anchor="w", padx=24, pady=(0, 10))
+        row.pack(anchor="w", padx=16, pady=(0, 8))
 
         btn_list = []
         setattr(self, attr, btn_list)
@@ -511,7 +557,26 @@ class MenuFrame(tk.Frame):
         return self._cur_item["price"] + topping_price
 
     def _refresh_total(self):
-        self._total_label.config(text=f"합계: {self._calc_total():,}원")
+        # 하단 바: 선택 메뉴 금액 표시
+        total = self._calc_total()
+        if self._cur_item:
+            self._cart_status.config(text=self._cur_item["name"])
+        else:
+            self._cart_status.config(text="미선택 상품")
+        # 카트 전체 금액 & 개수 동기화
+        self._sync_cart_bar()
+
+    def _sync_cart_bar(self):
+        """장바구니 실제 총액·개수를 하단 바에 반영"""
+        cart = self.get_cart() if callable(self.get_cart) else []
+        if cart:
+            cart_total = sum(i["unit_price"] * i["quantity"] for i in cart)
+            cart_count = sum(i["quantity"] for i in cart)
+            self._cart_total_label.config(text=f"₩ {cart_total:,}")
+            self._cart_badge.config(text=str(cart_count))
+        else:
+            self._cart_total_label.config(text="₩ 0")
+            self._cart_badge.config(text="0")
 
     def _add_to_cart(self):
         if not self._cur_item:
@@ -532,6 +597,7 @@ class MenuFrame(tk.Frame):
             "unit_price": item["price"] + topping_price,
             "quantity":   1,
         })
+        self._sync_cart_bar()
         # 토핑 초기화
         for var in self._topping_states.values():
             var.set(False)

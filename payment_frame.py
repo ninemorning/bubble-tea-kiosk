@@ -421,6 +421,9 @@ class PaymentFrame(tk.Frame):
         self.points_info.config(text="")
         self.use_points.set(False)
         if self.app:
+            # 공유 카트 초기화
+            if hasattr(self.app, "shared_cart"):
+                self.app.shared_cart.clear()
             self.app.state["member_id"] = None
             self.app.navigate("welcome")
 

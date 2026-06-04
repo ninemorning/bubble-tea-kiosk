@@ -69,6 +69,7 @@ class OrderFrame(tk.Frame):
     def __init__(self, parent, on_confirm_order=None, **kwargs):
         super().__init__(parent, bg=PASTEL["bg"], **kwargs)
         self.on_confirm_order = on_confirm_order
+        self.on_cart_change   = None   # menu_frame 뱃지 동기화용 (외부에서 설정)
         self.cart: list[dict] = []
         self.member_id: str | None = None
 
@@ -110,8 +111,8 @@ class OrderFrame(tk.Frame):
 
         cols = ("메뉴", "옵션", "수량", "금액", "")
         self.tree = ttk.Treeview(table_frame, columns=cols,
-                                  show="headings", height=10)
-        col_widths = {"메뉴": 110, "옵션": 130, "수량": 50, "금액": 70, "": 50}
+                                  show="headings", height=8)
+        col_widths = {"메뉴": 95, "옵션": 130, "수량": 45, "금액": 70, "": 40}
         for c in cols:
             self.tree.heading(c, text=c)
             self.tree.column(c, width=col_widths[c], anchor="center")
@@ -186,6 +187,8 @@ class OrderFrame(tk.Frame):
         self.tree.tag_configure("even", background=PASTEL["row_even"])
         self.tree.tag_configure("odd",  background=PASTEL["row_odd"])
         self._refresh_summary()
+        if callable(self.on_cart_change):
+            self.on_cart_change()
 
     def _refresh_summary(self):
         total   = self._total_price()
