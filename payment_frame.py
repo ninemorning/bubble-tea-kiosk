@@ -400,11 +400,23 @@ class PaymentFrame(tk.Frame):
             tk.Label(r, text=value, font=("맑은 고딕", 11, "bold"),
                      bg=PASTEL["green_bg"], fg=PASTEL["text"]).pack(side="left")
 
-        tk.Button(win, text="처음으로  🏠",
-                  font=("맑은 고딕", 12, "bold"),
+        # 버튼 두 개: 계속 주문 / 처음으로
+        btn_frame = tk.Frame(win, bg=PASTEL["bg"])
+        btn_frame.pack(pady=20, padx=30, fill="x")
+
+        tk.Button(btn_frame, text="🧋  계속 주문하기",
+                  font=("맑은 고딕", 11, "bold"),
+                  bg=PASTEL["btn"], fg=PASTEL["text"],
+                  relief="flat", padx=16, pady=8,
+                  command=lambda: self._continue_order(win)).pack(
+                      side="left", expand=True, fill="x", padx=(0, 6))
+
+        tk.Button(btn_frame, text="처음으로  🏠",
+                  font=("맑은 고딕", 11, "bold"),
                   bg=PASTEL["confirm"], fg=PASTEL["confirm_t"],
-                  relief="flat", padx=30, pady=8,
-                  command=lambda: self._finish(win)).pack(pady=20)
+                  relief="flat", padx=16, pady=8,
+                  command=lambda: self._finish(win)).pack(
+                      side="left", expand=True, fill="x", padx=(6, 0))
 
         win.update_idletasks()
         x = self.winfo_rootx() + (self.winfo_width()  - win.winfo_width())  // 2
@@ -421,11 +433,25 @@ class PaymentFrame(tk.Frame):
         self.points_info.config(text="")
         self.use_points.set(False)
         if self.app:
-            # 공유 카트 초기화
             if hasattr(self.app, "shared_cart"):
                 self.app.shared_cart.clear()
             self.app.state["member_id"] = None
             self.app.navigate("welcome")
+
+    def _continue_order(self, win):
+        """결제 완료 후 메뉴 페이지로 돌아가기 (카트 초기화, 로그인 유지)"""
+        win.destroy()
+        self.order = None
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+        self.total_label.config(text="합계: 0원")
+        self.earn_label.config(text="")
+        self.points_info.config(text="")
+        self.use_points.set(False)
+        if self.app:
+            if hasattr(self.app, "shared_cart"):
+                self.app.shared_cart.clear()
+            self.app.navigate("menu")
 
     def _go_back(self):
         if self.app:
