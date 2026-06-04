@@ -447,10 +447,29 @@ class MenuFrame(tk.Frame):
                         relief="solid", bd=1,
                         padx=6, pady=6, cursor="hand2")
 
-        emoji_label = tk.Label(card, text="🧁",
-                               font=("맑은 고딕", 20),
-                               bg=C["topping_bg"])
-        emoji_label.pack()
+        # 토핑 이미지 파일명 매핑 (실제 파일명 기준)
+        TOPPING_FILE = {
+            "타피오카 펄": "topping_펄",
+            "코코넛 젤리": "topping_ 젤리",   # 파일명에 공백 있음
+            "푸딩":        "topping_푸딩",
+            "알로에":      "topping_알로에",
+        }
+        TOPPING_EMOJI = {
+            "타피오카 펄": "🫧",
+            "코코넛 젤리": "🥥",
+            "푸딩":        "🍮",
+            "알로에":      "🌿",
+        }
+        fname   = TOPPING_FILE.get(topping["name"], f"topping_{topping['name']}")
+        t_photo = _load_photo(fname, max_w=60, max_h=60)
+        if t_photo:
+            self._photo_refs.append(t_photo)
+            tk.Label(card, image=t_photo, bg=C["topping_bg"]).pack(pady=(2, 2))
+        else:
+            emoji = TOPPING_EMOJI.get(topping["name"], "🧁")
+            tk.Label(card, text=emoji,
+                     font=("맑은 고딕", 20),
+                     bg=C["topping_bg"]).pack(pady=(2, 2))
         tk.Label(card, text=topping["name"],
                  font=("맑은 고딕", 9),
                  bg=C["topping_bg"], fg=C["text"]).pack()
