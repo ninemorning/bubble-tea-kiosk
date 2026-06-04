@@ -182,12 +182,12 @@ class MenuFrame(tk.Frame):
 
     # ── 메뉴 리스트 ─────────────────────────────────────────
     def _build_list_panel(self, parent):
-        panel = tk.Frame(parent, bg=C["list_bg"], width=150)
+        panel = tk.Frame(parent, bg=C["list_bg"], width=160)
         panel.pack(side="left", fill="y")
         panel.pack_propagate(False)
 
         canvas = tk.Canvas(panel, bg=C["list_bg"],
-                           highlightthickness=0, width=145)
+                           highlightthickness=0, width=155)
         sb = ttk.Scrollbar(panel, orient="vertical", command=canvas.yview)
         self._list_inner = tk.Frame(canvas, bg=C["list_bg"])
 
@@ -324,31 +324,29 @@ class MenuFrame(tk.Frame):
 
     def _make_list_card(self, item):
         card = tk.Frame(self._list_inner, bg=C["card"],
-                        cursor="hand2", pady=8, padx=8)
-        card.pack(fill="x", padx=6, pady=3)
+                        cursor="hand2", pady=6, padx=6)
+        card.pack(fill="x", padx=4, pady=3)
 
-        photo = _load_photo(item["id"], max_w=64, max_h=64)
+        photo = _load_photo(item["id"], max_w=120, max_h=90)
         if photo:
             self._list_photo_refs.append(photo)
-            tk.Label(card, image=photo, bg=C["card"]).pack(
-                side="left", padx=(0, 8))
+            tk.Label(card, image=photo, bg=C["card"]).pack()
         else:
             emoji = CATEGORY_EMOJI.get(item.get("category", ""), "🥤")
-            tk.Label(card, text=emoji, font=("맑은 고딕", 22),
-                     bg=C["card"]).pack(side="left", padx=(0, 8))
+            tk.Label(card, text=emoji, font=("맑은 고딕", 26),
+                     bg=C["card"]).pack()
 
-        info = tk.Frame(card, bg=C["card"])
-        info.pack(side="left", fill="both", expand=True)
-        tk.Label(info, text=item["name"],
-                 font=("맑은 고딕", 11, "bold"),
+        tk.Label(card, text=item["name"],
+                 font=("맑은 고딕", 10, "bold"),
                  bg=C["card"], fg=C["text"],
-                 anchor="w", wraplength=100).pack(anchor="w")
-        tk.Label(info, text=f"{item['price']:,}원",
-                 font=("맑은 고딕", 11),
+                 anchor="w", wraplength=140,
+                 justify="left").pack(anchor="w", pady=(4, 0))
+        tk.Label(card, text=f"{item['price']:,}원",
+                 font=("맑은 고딕", 10),
                  bg=C["card"], fg=C["accent"],
-                 anchor="w").pack(anchor="w", pady=(2, 0))
+                 anchor="w").pack(anchor="w")
 
-        all_ws = [card] + list(card.winfo_children()) + list(info.winfo_children())
+        all_ws = [card] + list(card.winfo_children())
         for w in all_ws:
             w.bind("<Button-1>", lambda e, i=item: self._select_item(i))
 
