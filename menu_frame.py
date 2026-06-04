@@ -1,7 +1,17 @@
+"""
+menu_frame.py  ─  버블티 키오스크 메뉴 화면
+
+레이아웃 (참고 이미지 기반):
+  ┌──────────┬───────────────────┬──────────────────────────┐
+  │ 카테고리  │   메뉴 목록        │   상세 / 옵션 패널        │
+  │ 사이드바  │  (스크롤 리스트)   │  이미지 + 이름 + 옵션     │
+  └──────────┴───────────────────┴──────────────────────────┘
+"""
+
 import json
 import os
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 
 try:
     from PIL import Image, ImageTk
@@ -10,24 +20,33 @@ except ImportError:
     PIL_AVAILABLE = False
 
 
-MENU_FILE   = "data/menu.json"
-IMAGES_DIR  = "data/images"
+MENU_FILE  = "data/menu.json"
+IMAGES_DIR = "data/images"
 
-PASTEL = {
-    "bg":       "#FFF5F9",
-    "header":   "#F9C8D9",
-    "btn":      "#F4A7C0",
-    "btn_sel":  "#E87FAA",
-    "card":     "#FFFFFF",
-    "card_sel": "#FFE4F0",
-    "accent":   "#D4547A",
-    "text":     "#3A2030",
-    "subtext":  "#7A5068",
-    "add_btn":  "#E87FAA",
-    "add_txt":  "#FFFFFF",
+C = {
+    "bg":          "#FFF5F9",
+    "sidebar_bg":  "#FFFFFF",
+    "sidebar_sel": "#FFF0F5",
+    "sidebar_acc": "#D4547A",
+    "list_bg":     "#F7F7F7",
+    "card":        "#FFFFFF",
+    "card_sel":    "#FFE4F0",
+    "detail_bg":   "#FFFFFF",
+    "header":      "#F9C8D9",
+    "accent":      "#D4547A",
+    "text":        "#3A2030",
+    "subtext":     "#7A5068",
+    "tag_bg":      "#FFFFFF",
+    "tag_sel_bg":  "#D4547A",
+    "tag_sel_fg":  "#FFFFFF",
+    "tag_fg":      "#3A2030",
+    "tag_border":  "#CCCCCC",
+    "add_btn":     "#D4547A",
+    "add_txt":     "#FFFFFF",
+    "topping_bg":  "#FAFAFA",
+    "topping_sel": "#FFE4F0",
 }
 
-# 카테고리별 이모지 (이미지 파일이 없을 때 폴백)
 CATEGORY_EMOJI = {
     "밀크티": "🧋",
     "과일차": "🍓",
@@ -35,17 +54,12 @@ CATEGORY_EMOJI = {
 }
 
 
-def load_menu():
+def load_menu() -> dict:
     with open(MENU_FILE, encoding="utf-8") as f:
         return json.load(f)
 
 
-def _load_photo(item_id: int, max_width=160, max_height=160):
-    """
-    data/images/<id>.png (또는 .jpg/.jpeg/.webp) 를 로드해 PhotoImage 반환.
-    원본 비율을 유지하면서 max_width × max_height 안에 맞게 축소.
-    파일이 없거나 PIL이 없으면 None 반환.
-    """
+def _load_photo(item_id, max_w: int, max_h: int):
     if not PIL_AVAILABLE:
         return None
     for ext in ("png", "jpg", "jpeg", "webp"):
@@ -53,283 +67,455 @@ def _load_photo(item_id: int, max_width=160, max_height=160):
         if os.path.exists(path):
             try:
                 img = Image.open(path).convert("RGBA")
-                # 원본 비율 유지: max_width/max_height 박스 안에 fit
-                img.thumbnail((max_width, max_height), Image.LANCZOS)
+                img.thumbnail((max_w, max_h), Image.LANCZOS)
                 return ImageTk.PhotoImage(img)
             except Exception:
                 return None
     return None
 
 
-class CustomizeDialog(tk.Toplevel):
-    """
-    팝업 창: 당도 / 얼음 / 토핑 선택 후 장바구니에 담기
-    반환값은 self.result (dict) — order_frame.py가 읽어감
-    """
-    def __init__(self, parent, item, menu_data):
-        super().__init__(parent)
-        self.title("옵션 선택")
-        self.resizable(False, False)
-        self.configure(bg=PASTEL["bg"])
-        self.grab_set()
-        self.result = None
+class TagButton(tk.Label):
+    def __init__(self, parent, text, on_select, selected=False, **kw):
+        super().__init__(parent, text=text,
+                         font=("맑은 고딕", 10),
+                         padx=14, pady=5,
+                         relief="solid", bd=1,
+                         cursor="hand2", **kw)
+        self.on_select = on_select
+        self.set_selected(selected)
+        self.bind("<Button-1>", lambda e: self.on_select())
 
-        options  = menu_data["options"]
-        toppings = options["toppings"]
-
-        pad = {"padx": 16, "pady": 6}
-
-        # ── 상품 이미지 (팝업 상단) ─────────────────────────
-        photo = _load_photo(item["id"], max_width=200, max_height=180)
-        if photo:
-            self._photo_ref = photo          # 가비지 컬렉션 방지
-            tk.Label(self, image=photo, bg=PASTEL["bg"]).pack(pady=(12, 0))
+    def set_selected(self, val: bool):
+        if val:
+            self.config(bg=C["tag_sel_bg"], fg=C["tag_sel_fg"])
         else:
-            emoji = CATEGORY_EMOJI.get(item.get("category", ""), "🧋")
-            tk.Label(self, text=emoji, font=("맑은 고딕", 36),
-                     bg=PASTEL["bg"]).pack(pady=(12, 0))
-
-        tk.Label(self, text=item["name"], font=("맑은 고딕", 14, "bold"),
-                 bg=PASTEL["bg"], fg=PASTEL["accent"]).pack(**pad, anchor="w")
-        tk.Label(self, text=f"기본가격: {item['price']:,}원",
-                 font=("맑은 고딕", 11), bg=PASTEL["bg"],
-                 fg=PASTEL["subtext"]).pack(padx=16, pady=(0, 8), anchor="w")
-
-        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=16)
-
-        # 당도
-        tk.Label(self, text="당도 (%)", font=("맑은 고딕", 11, "bold"),
-                 bg=PASTEL["bg"], fg=PASTEL["text"]).pack(**pad, anchor="w")
-        self.sweetness_var = tk.IntVar(value=50)
-        sw_frame = tk.Frame(self, bg=PASTEL["bg"])
-        sw_frame.pack(padx=16, pady=(0, 8))
-        for val in options["sweetness"]:
-            tk.Radiobutton(
-                sw_frame, text=f"{val}%", variable=self.sweetness_var, value=val,
-                bg=PASTEL["bg"], fg=PASTEL["text"],
-                selectcolor=PASTEL["btn_sel"],
-                activebackground=PASTEL["bg"],
-            ).pack(side="left", padx=6)
-
-        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=16)
-
-        # 얼음
-        tk.Label(self, text="얼음", font=("맑은 고딕", 11, "bold"),
-                 bg=PASTEL["bg"], fg=PASTEL["text"]).pack(**pad, anchor="w")
-        self.ice_var = tk.StringVar(value="정량")
-        ice_frame = tk.Frame(self, bg=PASTEL["bg"])
-        ice_frame.pack(padx=16, pady=(0, 8))
-        for opt in options["ice"]:
-            tk.Radiobutton(
-                ice_frame, text=opt, variable=self.ice_var, value=opt,
-                bg=PASTEL["bg"], fg=PASTEL["text"],
-                selectcolor=PASTEL["btn_sel"],
-                activebackground=PASTEL["bg"],
-            ).pack(side="left", padx=6)
-
-        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=16)
-
-        # 토핑
-        tk.Label(self, text="토핑 추가 (복수 선택 가능)",
-                 font=("맑은 고딕", 11, "bold"),
-                 bg=PASTEL["bg"], fg=PASTEL["text"]).pack(**pad, anchor="w")
-        self.topping_vars = []
-        topping_frame = tk.Frame(self, bg=PASTEL["bg"])
-        topping_frame.pack(padx=16, pady=(0, 8))
-        for t in toppings:
-            var = tk.BooleanVar(value=False)
-            self.topping_vars.append((t, var))
-            tk.Checkbutton(
-                topping_frame,
-                text=f"{t['name']} +{t['price']:,}원",
-                variable=var,
-                bg=PASTEL["bg"], fg=PASTEL["text"],
-                selectcolor=PASTEL["btn_sel"],
-                activebackground=PASTEL["bg"],
-            ).pack(anchor="w")
-
-        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=16, pady=4)
-
-        # 합계
-        self.total_label = tk.Label(self, text="", font=("맑은 고딕", 12, "bold"),
-                                    bg=PASTEL["bg"], fg=PASTEL["accent"])
-        self.total_label.pack(**pad, anchor="e")
-        self._update_total(item)
-
-        for t, var in self.topping_vars:
-            var.trace_add("write", lambda *_: self._update_total(item))
-
-        # 버튼
-        btn_frame = tk.Frame(self, bg=PASTEL["bg"])
-        btn_frame.pack(padx=16, pady=12, fill="x")
-        tk.Button(btn_frame, text="취소", font=("맑은 고딕", 11),
-                  bg=PASTEL["header"], fg=PASTEL["text"],
-                  relief="flat", padx=20,
-                  command=self.destroy).pack(side="left")
-        tk.Button(btn_frame, text="장바구니 담기 🧋",
-                  font=("맑은 고딕", 11, "bold"),
-                  bg=PASTEL["add_btn"], fg=PASTEL["add_txt"],
-                  relief="flat", padx=20,
-                  command=lambda: self._add_to_cart(item)).pack(side="right")
-
-        self.update_idletasks()
-        x = parent.winfo_rootx() + (parent.winfo_width()  - self.winfo_width())  // 2
-        y = parent.winfo_rooty() + (parent.winfo_height() - self.winfo_height()) // 2
-        self.geometry(f"+{x}+{y}")
-
-    def _update_total(self, item):
-        topping_total = sum(t["price"] for t, v in self.topping_vars if v.get())
-        self.total_label.config(text=f"합계: {item['price'] + topping_total:,}원")
-
-    def _add_to_cart(self, item):
-        selected_toppings = [t for t, v in self.topping_vars if v.get()]
-        topping_price     = sum(t["price"] for t in selected_toppings)
-        self.result = {
-            "item_id":    item["id"],
-            "name":       item["name"],
-            "base_price": item["price"],
-            "sweetness":  self.sweetness_var.get(),
-            "ice":        self.ice_var.get(),
-            "toppings":   selected_toppings,
-            "unit_price": item["price"] + topping_price,
-            "quantity":   1,
-        }
-        self.destroy()
+            self.config(bg=C["tag_bg"], fg=C["tag_fg"])
 
 
 class MenuFrame(tk.Frame):
     """
-    메뉴 화면 프레임
-    - 카테고리 탭으로 메뉴 필터
-    - 각 메뉴 카드 클릭 → CustomizeDialog
-    - on_add_to_cart(order_item) 콜백으로 장바구니 연결
-
     [대외 인터페이스]
     on_add_to_cart : callable(order_item: dict)
     """
+
     def __init__(self, parent, on_add_to_cart, **kwargs):
-        super().__init__(parent, bg=PASTEL["bg"], **kwargs)
+        super().__init__(parent, bg=C["bg"], **kwargs)
         self.on_add_to_cart = on_add_to_cart
         self.menu_data      = load_menu()
-        self.current_cat    = tk.StringVar(value="전체")
-        self._photo_refs    = []   # PhotoImage 참조 보관 (GC 방지)
+        self._photo_refs    = []
 
-        self._build_header()
-        self._build_category_tabs()
-        self._build_menu_grid()
+        self._cur_cat        = "전체"
+        self._cur_item       = None
+        self._sweetness_val  = None
+        self._ice_val        = None
+        self._sweetness_btns = []
+        self._ice_btns       = []
+        self._topping_states = {}
+        self._topping_cards  = {}
+        self._list_cards     = []
 
-    # ── UI 빌드 ──────────────────────────────────────────────
+        self._build_layout()
+        items = self.menu_data["items"]
+        if items:
+            self._select_item(items[0])
 
-    def _build_header(self):
-        header = tk.Frame(self, bg=PASTEL["header"], pady=12)
+    # ────────────────────────────────────────────────────────
+    # 레이아웃
+    # ────────────────────────────────────────────────────────
+
+    def _build_layout(self):
+        header = tk.Frame(self, bg=C["header"], pady=10)
         header.pack(fill="x")
         tk.Label(header, text="🧋  버블티 키오스크",
-                 font=("맑은 고딕", 18, "bold"),
-                 bg=PASTEL["header"], fg=PASTEL["accent"]).pack()
+                 font=("맑은 고딕", 17, "bold"),
+                 bg=C["header"], fg=C["accent"]).pack()
 
-    def _build_category_tabs(self):
-        tab_frame = tk.Frame(self, bg=PASTEL["bg"], pady=8)
-        tab_frame.pack(fill="x", padx=16)
+        body = tk.Frame(self, bg=C["bg"])
+        body.pack(fill="both", expand=True)
 
-        categories = ["전체"] + self.menu_data["categories"]
-        for cat in categories:
-            tk.Button(
-                tab_frame, text=cat,
-                font=("맑은 고딕", 11),
-                bg=PASTEL["btn"], fg=PASTEL["text"],
-                relief="flat", padx=14, pady=4,
-                command=lambda c=cat: self._select_category(c),
-            ).pack(side="left", padx=4)
+        self._build_sidebar(body)
+        self._build_list_panel(body)
+        self._build_detail_panel(body)
 
-        self.tab_frame = tab_frame
+    # ── 사이드바 ─────────────────────────────────────────────
+    def _build_sidebar(self, parent):
+        sb = tk.Frame(parent, bg=C["sidebar_bg"], width=90)
+        sb.pack(side="left", fill="y")
+        sb.pack_propagate(False)
 
-    def _build_menu_grid(self):
-        container = tk.Frame(self, bg=PASTEL["bg"])
-        container.pack(fill="both", expand=True, padx=16, pady=8)
+        self._sidebar_btns = {}
+        cats = ["전체"] + self.menu_data["categories"]
+        for cat in cats:
+            emoji = "🍵" if cat == "전체" else CATEGORY_EMOJI.get(cat, "☕")
 
-        canvas = tk.Canvas(container, bg=PASTEL["bg"], highlightthickness=0)
-        scrollbar = ttk.Scrollbar(container, orient="vertical",
-                                  command=canvas.yview)
-        self.grid_frame = tk.Frame(canvas, bg=PASTEL["bg"])
+            btn_frame = tk.Frame(sb, bg=C["sidebar_bg"], cursor="hand2")
+            btn_frame.pack(fill="x")
 
-        self.grid_frame.bind(
+            bar = tk.Frame(btn_frame, width=4, bg=C["sidebar_bg"])
+            bar.pack(side="left", fill="y")
+
+            inner = tk.Frame(btn_frame, bg=C["sidebar_bg"])
+            inner.pack(side="left", fill="both", expand=True)
+
+            icon = tk.Label(inner, text=emoji,
+                            font=("맑은 고딕", 18),
+                            bg=C["sidebar_bg"], fg=C["text"],
+                            pady=6)
+            icon.pack()
+            lbl = tk.Label(inner, text=cat,
+                           font=("맑은 고딕", 9),
+                           bg=C["sidebar_bg"], fg=C["subtext"],
+                           pady=0)
+            lbl.pack(pady=(0, 8))
+
+            self._sidebar_btns[cat] = (btn_frame, inner, icon, lbl, bar)
+
+            for w in (btn_frame, inner, icon, lbl):
+                w.bind("<Button-1>", lambda e, c=cat: self._select_category(c))
+
+        self._update_sidebar_sel()
+
+    # ── 메뉴 리스트 ─────────────────────────────────────────
+    def _build_list_panel(self, parent):
+        panel = tk.Frame(parent, bg=C["list_bg"], width=200)
+        panel.pack(side="left", fill="y")
+        panel.pack_propagate(False)
+
+        canvas = tk.Canvas(panel, bg=C["list_bg"],
+                           highlightthickness=0, width=190)
+        sb = ttk.Scrollbar(panel, orient="vertical", command=canvas.yview)
+        self._list_inner = tk.Frame(canvas, bg=C["list_bg"])
+
+        self._list_inner.bind(
             "<Configure>",
             lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
-        canvas.create_window((0, 0), window=self.grid_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.create_window((0, 0), window=self._list_inner, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
 
-        scrollbar.pack(side="right", fill="y")
+        sb.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
 
-        self._render_cards("전체")
+        self._render_list()
 
-    # ── 카드 렌더링 ───────────────────────────────────────────
+    # ── 상세 패널 ────────────────────────────────────────────
+    def _build_detail_panel(self, parent):
+        panel = tk.Frame(parent, bg=C["detail_bg"])
+        panel.pack(side="left", fill="both", expand=True)
+
+        # 하단 고정 바
+        bottom = tk.Frame(panel, bg=C["detail_bg"], pady=10, padx=20)
+        bottom.pack(fill="x", side="bottom")
+        ttk.Separator(panel, orient="horizontal").pack(fill="x", side="bottom")
+
+        self._total_label = tk.Label(bottom, text="합계: 0원",
+                                     font=("맑은 고딕", 14, "bold"),
+                                     bg=C["detail_bg"], fg=C["accent"])
+        self._total_label.pack(side="left")
+
+        tk.Button(bottom, text="장바구니 담기  +",
+                  font=("맑은 고딕", 13, "bold"),
+                  bg=C["add_btn"], fg=C["add_txt"],
+                  relief="flat", padx=24, pady=8,
+                  command=self._add_to_cart).pack(side="right")
+
+        # 스크롤 영역
+        canvas = tk.Canvas(panel, bg=C["detail_bg"], highlightthickness=0)
+        sb = ttk.Scrollbar(panel, orient="vertical", command=canvas.yview)
+        self._detail_inner = tk.Frame(canvas, bg=C["detail_bg"])
+        self._detail_inner.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=self._detail_inner, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+    # ────────────────────────────────────────────────────────
+    # 카테고리 선택
+    # ────────────────────────────────────────────────────────
 
     def _select_category(self, cat):
-        self.current_cat.set(cat)
-        self._render_cards(cat)
+        self._cur_cat = cat
+        self._update_sidebar_sel()
+        self._render_list()
+        items = self._filtered_items()
+        if items:
+            self._select_item(items[0])
 
-    def _render_cards(self, category):
-        for widget in self.grid_frame.winfo_children():
-            widget.destroy()
+    def _update_sidebar_sel(self):
+        for cat, (frm, inner, icon, lbl, bar) in self._sidebar_btns.items():
+            sel = (cat == self._cur_cat)
+            bg  = C["sidebar_sel"] if sel else C["sidebar_bg"]
+            fg_main = C["accent"] if sel else C["text"]
+            fg_sub  = C["accent"] if sel else C["subtext"]
+            bar_c   = C["accent"] if sel else C["sidebar_bg"]
+            for w in (frm, inner):
+                w.config(bg=bg)
+            icon.config(bg=bg, fg=fg_main)
+            lbl.config(bg=bg, fg=fg_sub)
+            bar.config(bg=bar_c)
 
-        # 이전 이미지 참조 해제 후 새로 수집
-        self._photo_refs.clear()
-
+    def _filtered_items(self):
         items = self.menu_data["items"]
-        if category != "전체":
-            items = [i for i in items if i["category"] == category]
+        if self._cur_cat != "전체":
+            items = [i for i in items if i["category"] == self._cur_cat]
+        return items
 
-        COLS = 3
-        for idx, item in enumerate(items):
-            row, col = divmod(idx, COLS)
-            card = tk.Frame(
-                self.grid_frame, bg=PASTEL["card"],
-                relief="solid", bd=1,
-                padx=12, pady=12, cursor="hand2",
-            )
-            card.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
+    # ────────────────────────────────────────────────────────
+    # 메뉴 리스트 렌더링
+    # ────────────────────────────────────────────────────────
 
-            # ── 이미지 영역 ───────────────────────────────────
-            photo = _load_photo(item["id"], max_width=160, max_height=160)
-            if photo:
-                self._photo_refs.append(photo)   # GC 방지 필수
-                tk.Label(card, image=photo,
-                         bg=PASTEL["card"]).pack(pady=(0, 6))
-            else:
-                # 이미지 없으면 카테고리 이모지로 대체
-                emoji = CATEGORY_EMOJI.get(item.get("category", ""), "🥤")
-                tk.Label(card, text=emoji,
-                         font=("맑은 고딕", 32),
-                         bg=PASTEL["card"]).pack(pady=(0, 6))
-            # ─────────────────────────────────────────────────
+    def _render_list(self):
+        for w in self._list_inner.winfo_children():
+            w.destroy()
+        self._list_photo_refs = []
+        self._list_cards = []
 
-            tk.Label(card, text=item["name"],
-                     font=("맑은 고딕", 12, "bold"),
-                     bg=PASTEL["card"], fg=PASTEL["text"],
-                     wraplength=130).pack()
-            tk.Label(card, text=item["category"],
-                     font=("맑은 고딕", 9),
-                     bg=PASTEL["card"], fg=PASTEL["subtext"]).pack()
-            tk.Label(card, text=f"{item['price']:,}원",
-                     font=("맑은 고딕", 13, "bold"),
-                     bg=PASTEL["card"], fg=PASTEL["accent"]).pack(pady=(6, 8))
-            tk.Button(card, text="담기 +",
-                      font=("맑은 고딕", 10, "bold"),
-                      bg=PASTEL["add_btn"], fg=PASTEL["add_txt"],
-                      relief="flat", padx=12,
-                      command=lambda i=item: self._open_customize(i)).pack()
+        for item in self._filtered_items():
+            self._make_list_card(item)
 
-            for widget in [card] + card.winfo_children():
-                widget.bind("<Button-1>",
-                            lambda e, i=item: self._open_customize(i))
+    def _make_list_card(self, item):
+        card = tk.Frame(self._list_inner, bg=C["card"],
+                        cursor="hand2", pady=8, padx=8)
+        card.pack(fill="x", padx=6, pady=3)
 
-        for c in range(COLS):
-            self.grid_frame.columnconfigure(c, weight=1)
+        photo = _load_photo(item["id"], max_w=64, max_h=64)
+        if photo:
+            self._list_photo_refs.append(photo)
+            tk.Label(card, image=photo, bg=C["card"]).pack(
+                side="left", padx=(0, 8))
+        else:
+            emoji = CATEGORY_EMOJI.get(item.get("category", ""), "🥤")
+            tk.Label(card, text=emoji, font=("맑은 고딕", 22),
+                     bg=C["card"]).pack(side="left", padx=(0, 8))
 
-    def _open_customize(self, item):
-        dlg = CustomizeDialog(self.winfo_toplevel(), item, self.menu_data)
-        self.wait_window(dlg)
-        if dlg.result:
-            self.on_add_to_cart(dlg.result)
+        info = tk.Frame(card, bg=C["card"])
+        info.pack(side="left", fill="both", expand=True)
+        tk.Label(info, text=item["name"],
+                 font=("맑은 고딕", 11, "bold"),
+                 bg=C["card"], fg=C["text"],
+                 anchor="w", wraplength=100).pack(anchor="w")
+        tk.Label(info, text=f"{item['price']:,}원",
+                 font=("맑은 고딕", 11),
+                 bg=C["card"], fg=C["accent"],
+                 anchor="w").pack(anchor="w", pady=(2, 0))
+
+        all_ws = [card] + list(card.winfo_children()) + list(info.winfo_children())
+        for w in all_ws:
+            w.bind("<Button-1>", lambda e, i=item: self._select_item(i))
+
+        card._item = item
+        card._all_ws = all_ws
+        self._list_cards.append(card)
+
+    def _highlight_list_card(self, selected_item):
+        for card in self._list_cards:
+            sel = card._item["id"] == selected_item["id"]
+            bg  = C["card_sel"] if sel else C["card"]
+            for w in card._all_ws:
+                try:
+                    w.config(bg=bg)
+                except Exception:
+                    pass
+
+    # ────────────────────────────────────────────────────────
+    # 상세 패널 렌더링
+    # ────────────────────────────────────────────────────────
+
+    def _select_item(self, item):
+        self._cur_item      = item
+        self._sweetness_val = self.menu_data["options"]["sweetness"][2]
+        self._ice_val       = self.menu_data["options"]["ice"][0]
+        self._topping_states = {
+            t["name"]: tk.BooleanVar(value=False)
+            for t in self.menu_data["options"]["toppings"]
+        }
+        self._highlight_list_card(item)
+        self._render_detail(item)
+        self._refresh_total()
+
+    def _render_detail(self, item):
+        for w in self._detail_inner.winfo_children():
+            w.destroy()
+        self._photo_refs.clear()
+        self._topping_cards.clear()
+
+        options  = self.menu_data["options"]
+        toppings = options["toppings"]
+
+        # 큰 이미지
+        photo = _load_photo(item["id"], max_w=340, max_h=280)
+        if photo:
+            self._photo_refs.append(photo)
+            tk.Label(self._detail_inner, image=photo,
+                     bg=C["detail_bg"]).pack(pady=(20, 0))
+        else:
+            emoji = CATEGORY_EMOJI.get(item.get("category", ""), "🥤")
+            tk.Label(self._detail_inner, text=emoji,
+                     font=("맑은 고딕", 64),
+                     bg=C["detail_bg"]).pack(pady=(24, 0))
+
+        # 이름 / 가격
+        tk.Label(self._detail_inner, text=item["name"],
+                 font=("맑은 고딕", 20, "bold"),
+                 bg=C["detail_bg"], fg=C["text"]).pack(
+                     anchor="w", padx=24, pady=(16, 0))
+        tk.Label(self._detail_inner,
+                 text=f"₩ {item['price']:,}",
+                 font=("맑은 고딕", 18, "bold"),
+                 bg=C["detail_bg"], fg=C["accent"]).pack(
+                     anchor="w", padx=24, pady=(4, 14))
+
+        ttk.Separator(self._detail_inner).pack(fill="x", padx=24, pady=4)
+
+        # 당도
+        self._build_option_section(
+            "당도",
+            choices=[f"{v}%" for v in options["sweetness"]],
+            values=options["sweetness"],
+            get_val=lambda: self._sweetness_val,
+            set_val=lambda v: setattr(self, "_sweetness_val", v),
+            attr="_sweetness_btns",
+        )
+        ttk.Separator(self._detail_inner).pack(fill="x", padx=24, pady=4)
+
+        # 얼음
+        self._build_option_section(
+            "얼음",
+            choices=options["ice"],
+            values=options["ice"],
+            get_val=lambda: self._ice_val,
+            set_val=lambda v: setattr(self, "_ice_val", v),
+            attr="_ice_btns",
+        )
+        ttk.Separator(self._detail_inner).pack(fill="x", padx=24, pady=4)
+
+        # 토핑
+        tk.Label(self._detail_inner, text="토핑  (복수 선택 가능)",
+                 font=("맑은 고딕", 12, "bold"),
+                 bg=C["detail_bg"], fg=C["text"]).pack(
+                     anchor="w", padx=24, pady=(10, 6))
+
+        grid = tk.Frame(self._detail_inner, bg=C["detail_bg"])
+        grid.pack(fill="x", padx=24, pady=(0, 16))
+        for idx, t in enumerate(toppings):
+            tc = self._make_topping_card(grid, t)
+            tc.grid(row=idx // 4, column=idx % 4, padx=4, pady=4, sticky="nsew")
+            self._topping_cards[t["name"]] = tc
+        for c in range(4):
+            grid.columnconfigure(c, weight=1)
+
+        tk.Label(self._detail_inner, bg=C["detail_bg"]).pack(pady=8)
+
+    def _build_option_section(self, label, choices, values,
+                               get_val, set_val, attr):
+        tk.Label(self._detail_inner, text=label,
+                 font=("맑은 고딕", 12, "bold"),
+                 bg=C["detail_bg"], fg=C["text"]).pack(
+                     anchor="w", padx=24, pady=(10, 6))
+
+        row = tk.Frame(self._detail_inner, bg=C["detail_bg"])
+        row.pack(anchor="w", padx=24, pady=(0, 10))
+
+        btn_list = []
+        setattr(self, attr, btn_list)
+
+        def make_cb(val, blist, sv, gv):
+            def cb():
+                sv(val)
+                for b, v in blist:
+                    b.set_selected(v == gv())
+                self._refresh_total()
+            return cb
+
+        for ch, val in zip(choices, values):
+            is_sel = (val == get_val())
+            btn = TagButton(row, text=ch, on_select=lambda: None,
+                            selected=is_sel)
+            btn_list.append((btn, val))
+            btn.pack(side="left", padx=4)
+
+        for btn, val in btn_list:
+            btn.on_select = make_cb(val, btn_list, set_val, get_val)
+            btn.bind("<Button-1>", lambda e, f=btn.on_select: f())
+
+    def _make_topping_card(self, parent, topping):
+        var  = self._topping_states[topping["name"]]
+        card = tk.Frame(parent, bg=C["topping_bg"],
+                        relief="solid", bd=1,
+                        padx=6, pady=6, cursor="hand2")
+
+        emoji_label = tk.Label(card, text="🧁",
+                               font=("맑은 고딕", 20),
+                               bg=C["topping_bg"])
+        emoji_label.pack()
+        tk.Label(card, text=topping["name"],
+                 font=("맑은 고딕", 9),
+                 bg=C["topping_bg"], fg=C["text"]).pack()
+        tk.Label(card, text=f"+{topping['price']:,}원",
+                 font=("맑은 고딕", 9),
+                 bg=C["topping_bg"], fg=C["subtext"]).pack()
+
+        def toggle(c=card, v=var):
+            v.set(not v.get())
+            self._set_topping_style(c, v.get())
+            self._refresh_total()
+
+        for w in [card] + list(card.winfo_children()):
+            w.bind("<Button-1>", lambda e, fn=toggle: fn())
+
+        self._set_topping_style(card, var.get())
+        return card
+
+    def _set_topping_style(self, card, selected: bool):
+        bg = C["topping_sel"] if selected else C["topping_bg"]
+        for w in [card] + list(card.winfo_children()):
+            try:
+                w.config(bg=bg)
+            except Exception:
+                pass
+
+    # ────────────────────────────────────────────────────────
+    # 합계 & 담기
+    # ────────────────────────────────────────────────────────
+
+    def _calc_total(self) -> int:
+        if not self._cur_item:
+            return 0
+        topping_price = sum(
+            t["price"]
+            for t in self.menu_data["options"]["toppings"]
+            if self._topping_states.get(t["name"], tk.BooleanVar()).get()
+        )
+        return self._cur_item["price"] + topping_price
+
+    def _refresh_total(self):
+        self._total_label.config(text=f"합계: {self._calc_total():,}원")
+
+    def _add_to_cart(self):
+        if not self._cur_item:
+            return
+        item = self._cur_item
+        selected_toppings = [
+            t for t in self.menu_data["options"]["toppings"]
+            if self._topping_states.get(t["name"], tk.BooleanVar()).get()
+        ]
+        topping_price = sum(t["price"] for t in selected_toppings)
+        self.on_add_to_cart({
+            "item_id":    item["id"],
+            "name":       item["name"],
+            "base_price": item["price"],
+            "sweetness":  self._sweetness_val,
+            "ice":        self._ice_val,
+            "toppings":   selected_toppings,
+            "unit_price": item["price"] + topping_price,
+            "quantity":   1,
+        })
+        # 토핑 초기화
+        for var in self._topping_states.values():
+            var.set(False)
+        for card in self._topping_cards.values():
+            self._set_topping_style(card, False)
+        self._refresh_total()
