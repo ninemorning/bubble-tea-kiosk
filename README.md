@@ -10,6 +10,20 @@ Bubble Tea Kiosk System은 Python과 Tkinter를 활용하여 개발한 버블티
 
 ---
 
+# 실행 방법
+
+```bash
+python main.py
+```
+
+* Python 3.10 이상. Tkinter는 파이썬에 기본 포함되어 있어 별도 설치가 필요 없습니다.
+* 실행하면 `data/` 아래의 `menu.json`, `members.json`, `orders.json`을 읽어 옵니다.
+* 주문이 끝나면 같은 파일에 다시 저장되므로, 초기 상태로 되돌리려면 `data/orders.json`을 `[]`로 두면 됩니다.
+
+테스트용 계정은 `data/members.json`에 들어 있습니다 (아이디 `11`, 비밀번호 `111`).
+
+---
+
 # 주요 기능
 
 ## 1. 회원 관리 기능
